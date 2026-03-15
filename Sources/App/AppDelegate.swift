@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private let appState = AppState()
     private let scanner = TerminalScanner()
+    private let summaryManager = SummaryManager()
     private let hotkeyManager = HotkeyManager()
     private var cancellables = Set<AnyCancellable>()
 
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPopover()
         setupHotkey()
         startScanning()
+        summaryManager.start(appState: appState)
 
         // Update badge when terminal state changes
         appState.$terminalGroups
@@ -29,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         scanner.stopPolling()
+        summaryManager.stop()
         hotkeyManager.unregister()
     }
 
@@ -46,7 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startScanning() {
         scanner.startPolling(interval: 2.0) { [weak self] groups in
-            self?.appState.terminalGroups = groups
+            guard let self else { return }
+            self.appState.updateActivity(groups: groups, previous: self.appState.terminalGroups)
+            self.appState.terminalGroups = groups
         }
     }
 
@@ -95,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPopover() {
         let contentView = TerminalListView()
             .environmentObject(appState)
+            .environmentObject(summaryManager)
 
         let hosting = NSHostingController(rootView: contentView)
         hosting.sizingOptions = .preferredContentSize
@@ -117,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showPopover() {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        summaryManager.refreshIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
     }
 

@@ -2,7 +2,9 @@ import SwiftUI
 
 struct TerminalListView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var summaryManager: SummaryManager
     @State private var selectedIndex: Int? = nil
+
     var body: some View {
         VStack(spacing: 0) {
             terminalList
@@ -72,7 +74,7 @@ struct TerminalListView: View {
         } else {
             ScrollView {
                 VStack(spacing: 2) {
-                    ForEach(appState.terminalGroups) { group in
+                    ForEach(appState.sortedGroups) { group in
                         terminalGroupView(group)
                     }
                 }
@@ -98,6 +100,8 @@ struct TerminalListView: View {
         let globalIdx = appState.globalIndex(for: group)
         return TerminalRowView(
             tab: tab,
+            summary: summaryManager.summary(for: tab.id),
+            lastActive: effectiveLastActive(tab.id),
             shortcutIndex: globalIdx,
             isSelected: selectedIndex == globalIdx
         ) {
@@ -132,12 +136,26 @@ struct TerminalListView: View {
             ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
                 TerminalRowView(
                     tab: tab,
+                    summary: summaryManager.summary(for: tab.id),
+                    lastActive: effectiveLastActive(tab.id),
                     shortcutIndex: startIndex + index,
                     isSelected: selectedIndex == startIndex + index
                 ) {
                     focusTerminal(group: group, tab: tab)
                 }
             }
+        }
+    }
+
+    /// Merge scan-based and content-based activity times
+    private func effectiveLastActive(_ tabID: String) -> Date? {
+        let scan = appState.lastActivity[tabID]
+        let content = summaryManager.lastActivity(for: tabID)
+        switch (scan, content) {
+        case (.some(let a), .some(let b)): return max(a, b)
+        case (.some(let a), nil): return a
+        case (nil, .some(let b)): return b
+        case (nil, nil): return nil
         }
     }
 
