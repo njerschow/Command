@@ -7,11 +7,22 @@ struct TerminalRowView: View {
     let onSelect: () -> Void
 
     @State private var isHovered = false
+    @State private var isPressed = false
 
     private var isHighlighted: Bool { isHovered || isSelected }
 
     var body: some View {
-        Button(action: onSelect) {
+        Button(action: {
+            withAnimation(.spring(duration: 0.15)) {
+                isPressed = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                withAnimation(.spring(duration: 0.15)) {
+                    isPressed = false
+                }
+            }
+            onSelect()
+        }) {
             HStack(spacing: 8) {
                 StatusDotView(status: tab.status)
 
@@ -27,24 +38,36 @@ struct TerminalRowView: View {
                     Text("⌘\(shortcutIndex + 1)")
                         .font(.system(size: 11, weight: .regular, design: .rounded))
                         .foregroundStyle(.tertiary)
-                        .opacity(isHighlighted ? 1 : 0.5)
+                        .opacity(isHighlighted ? 1 : 0.4)
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isHighlighted ? Color.primary.opacity(0.07) : Color.clear)
+                    .fill(backgroundFill)
             )
+            .scaleEffect(isPressed ? 0.98 : 1.0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 4)
+        .sensoryFeedback(.selection, trigger: isSelected)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) {
                 isHovered = hovering
             }
         }
-        .animation(.easeOut(duration: 0.12), value: isSelected)
+        .animation(.spring(duration: 0.2, bounce: 0.1), value: isSelected)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+
+    private var backgroundFill: Color {
+        if isPressed {
+            return Color.primary.opacity(0.1)
+        } else if isHighlighted {
+            return Color.primary.opacity(0.06)
+        }
+        return Color.clear
     }
 }
