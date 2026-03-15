@@ -123,8 +123,8 @@ struct UpdatePopoverView: View {
     /// Simple markdown to plain text (strip #, *, -, links)
     static func renderMarkdownPlain(_ text: String) -> String {
         var result = text
-        // Strip heading markers
-        result = result.replacingOccurrences(of: #"^#{1,6}\s+"#, with: "", options: .regularExpression)
+        // Strip heading markers ((?m) makes ^ match each line start)
+        result = result.replacingOccurrences(of: #"(?m)^#{1,6}\s+"#, with: "", options: .regularExpression)
         // Strip bold/italic markers
         result = result.replacingOccurrences(of: "**", with: "")
         result = result.replacingOccurrences(of: "__", with: "")

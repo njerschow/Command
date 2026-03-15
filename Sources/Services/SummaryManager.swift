@@ -212,18 +212,27 @@ final class SummaryManager: ObservableObject {
             inputPipe.fileHandleForWriting.write(Data(prompt.utf8))
             inputPipe.fileHandleForWriting.closeFile()
 
+            // Read output concurrently to avoid pipe buffer deadlock
+            var outputData = Data()
+            let readGroup = DispatchGroup()
+            readGroup.enter()
+            DispatchQueue.global().async {
+                outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                readGroup.leave()
+            }
+
             // Wait with 30s timeout
-            let group = DispatchGroup()
-            group.enter()
-            DispatchQueue.global().async { process.waitUntilExit(); group.leave() }
-            if group.wait(timeout: .now() + 30) == .timedOut {
+            let exitGroup = DispatchGroup()
+            exitGroup.enter()
+            DispatchQueue.global().async { process.waitUntilExit(); exitGroup.leave() }
+            if exitGroup.wait(timeout: .now() + 30) == .timedOut {
                 process.terminate()
                 print("[SummaryManager] claude timed out")
                 return nil
             }
 
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            readGroup.wait()
+            let text = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
             return text?.isEmpty == true ? nil : text
         } catch {
             print("[SummaryManager] claude error: \(error)")

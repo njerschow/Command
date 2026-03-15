@@ -195,8 +195,7 @@ final class ClaudeHookServer: ObservableObject {
             session.lastEvent = "Finished responding"
 
         case "Notification":
-            if let hookInput = json["hook_input"] as? [String: Any],
-               let notificationType = hookInput["notification_type"] as? String {
+            if let notificationType = json["notification_type"] as? String {
                 switch notificationType {
                 case "idle_prompt":
                     session.state = .waitingForUser
@@ -211,8 +210,7 @@ final class ClaudeHookServer: ObservableObject {
 
         case "PreToolUse":
             session.state = .working
-            if let hookInput = json["hook_input"] as? [String: Any],
-               let toolName = hookInput["tool_name"] as? String {
+            if let toolName = json["tool_name"] as? String {
                 session.lastEvent = "Using \(toolName)"
             }
 

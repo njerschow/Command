@@ -148,29 +148,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let button = statusItem.button else { return }
 
-        button.title = "⌘."
-        button.font = NSFont.systemFont(ofSize: 14, weight: .medium)
-
+        button.image = makeStatusIcon(highlighted: false)
         button.action = #selector(togglePopover)
         button.target = self
 
         updateBadge()
     }
 
-    func updateBadge() {
-        guard let button = statusItem?.button else { return }
+    private func makeStatusIcon(highlighted: Bool) -> NSImage {
+        let text = "⌘."
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.black
+        ]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+        let padding = CGFloat(4)
+        let height = CGFloat(18)
+        let width = textSize.width + padding * 2
+        let cornerRadius = CGFloat(4)
+        let size = NSSize(width: width, height: height)
 
-        if appState.hasActionRequired || hookServer.hasActionRequired {
-            let attributed = NSAttributedString(string: "⌘.", attributes: [
-                .font: NSFont.systemFont(ofSize: 14, weight: .medium),
-                .foregroundColor: NSColor.controlAccentColor
-            ])
-            button.attributedTitle = attributed
-        } else {
-            button.attributedTitle = NSAttributedString(string: "⌘.", attributes: [
-                .font: NSFont.systemFont(ofSize: 14, weight: .medium)
-            ])
+        // Draw filled rounded rect, then punch out the text to make it transparent
+        let image = NSImage(size: size, flipped: false) { rect in
+            // Fill the rounded rect
+            let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: cornerRadius, yRadius: cornerRadius)
+            NSColor.black.setFill()
+            path.fill()
+
+            // Clear the text area to make it transparent
+            let textRect = NSRect(
+                x: (rect.width - textSize.width) / 2,
+                y: (rect.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            )
+            NSGraphicsContext.current?.cgContext.setBlendMode(.clear)
+            (text as NSString).draw(in: textRect, withAttributes: attrs)
+            return true
         }
+        image.isTemplate = true
+        return image
+    }
+
+    func updateBadge() {
+        // Badge updates disabled for now — icon stays static
     }
 
     // MARK: - Popover

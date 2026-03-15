@@ -190,18 +190,27 @@ final class SessionSearcher: ObservableObject {
             inputPipe.fileHandleForWriting.write(Data(prompt.utf8))
             inputPipe.fileHandleForWriting.closeFile()
 
-            let group = DispatchGroup()
-            group.enter()
-            DispatchQueue.global().async { process.waitUntilExit(); group.leave() }
-            if group.wait(timeout: .now() + 30) == .timedOut {
+            // Read output concurrently to avoid pipe buffer deadlock
+            var outputData = Data()
+            let readGroup = DispatchGroup()
+            readGroup.enter()
+            DispatchQueue.global().async {
+                outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                readGroup.leave()
+            }
+
+            let exitGroup = DispatchGroup()
+            exitGroup.enter()
+            DispatchQueue.global().async { process.waitUntilExit(); exitGroup.leave() }
+            if exitGroup.wait(timeout: .now() + 30) == .timedOut {
                 process.terminate()
                 self.aiTask = nil
                 return nil
             }
 
             self.aiTask = nil
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            readGroup.wait()
+            let text = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
             // Extract JSON array from response (Claude might wrap it in markdown)
             if let text, let start = text.firstIndex(of: "["), let end = text.lastIndex(of: "]") {
