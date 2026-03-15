@@ -77,7 +77,8 @@ final class ITermAdapter {
                 title: title,
                 status: status,
                 tty: tty,
-                tabIndex: tabIndex - 1
+                tabIndex: tabIndex - 1,
+                processes: []  // iTerm2 AppleScript doesn't expose process list
             )
 
             let key = "iterm-\(winID)"

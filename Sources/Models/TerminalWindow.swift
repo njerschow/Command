@@ -50,6 +50,11 @@ struct TerminalTab: Identifiable, Equatable {
     let status: TerminalStatus
     let tty: String?
     let tabIndex: Int
+    let processes: [String]
+
+    var isClaudeSession: Bool {
+        processes.contains { $0.contains("claude") }
+    }
 
     static func == (lhs: TerminalTab, rhs: TerminalTab) -> Bool {
         lhs.id == rhs.id && lhs.title == rhs.title && lhs.status == rhs.status

@@ -85,7 +85,8 @@ final class TerminalAppAdapter {
                 title: displayTitle,
                 status: status,
                 tty: tty,
-                tabIndex: tabIndex - 1  // Convert to 0-based
+                tabIndex: tabIndex - 1,  // Convert to 0-based
+                processes: processes
             )
 
             let key = "terminal-\(winID)"

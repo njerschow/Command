@@ -50,6 +50,7 @@ final class SessionStore: ObservableObject {
                 summary: summaryFor(tab.id) ?? tab.title,
                 workingDirectory: cachedDirectories[tab.id],
                 app: group.app.rawValue,
+                wasClaudeSession: tab.isClaudeSession,
                 closedAt: Date()
             )
             recentlyClosed.insert(session, at: 0)
@@ -75,6 +76,7 @@ final class SessionStore: ObservableObject {
             summary: summary ?? tab.title,
             workingDirectory: cachedDirectories[tab.id],
             app: group.app.rawValue,
+            wasClaudeSession: tab.isClaudeSession,
             closedAt: Date()
         )
         recentlyClosed.insert(session, at: 0)
@@ -123,12 +125,20 @@ final class SessionStore: ObservableObject {
 
     func restore(_ session: SavedSession) {
         let dir = session.workingDirectory ?? NSHomeDirectory()
-        // Open a new terminal starting in the saved directory (no visible cd command)
         let escapedDir = dir.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+
+        let command: String
+        if session.wasClaudeSession {
+            // Restore Claude Code session: cd to dir and launch claude
+            command = "cd \\\"\(escapedDir)\\\" && claude"
+        } else {
+            command = "cd \\\"\(escapedDir)\\\" && clear"
+        }
+
         let script = """
         tell application "Terminal"
             activate
-            do script "cd \\\"\(escapedDir)\\\" && clear"
+            do script "\(command)"
         end tell
         """
         let appleScript = NSAppleScript(source: script)
@@ -181,15 +191,17 @@ struct SavedSession: Identifiable, Codable {
     let summary: String
     let workingDirectory: String?
     let app: String
+    let wasClaudeSession: Bool
     let closedAt: Date
 
-    init(tabID: String, title: String, summary: String, workingDirectory: String?, app: String, closedAt: Date) {
+    init(tabID: String, title: String, summary: String, workingDirectory: String?, app: String, wasClaudeSession: Bool = false, closedAt: Date) {
         self.id = UUID().uuidString
         self.tabID = tabID
         self.title = title
         self.summary = summary
         self.workingDirectory = workingDirectory
         self.app = app
+        self.wasClaudeSession = wasClaudeSession
         self.closedAt = closedAt
     }
 }
