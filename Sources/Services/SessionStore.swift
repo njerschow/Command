@@ -89,15 +89,31 @@ final class SessionStore: ObservableObject {
     // MARK: - Save & Close
 
     /// Explicitly save a session and close its terminal window
-    func saveAndClose(group: TerminalGroup, tab: TerminalTab, summary: String?) {
+    /// Pass contentReader and hookServer for real-time resolution (not just cached values)
+    func saveAndClose(group: TerminalGroup, tab: TerminalTab, summary: String?,
+                      contentReader: ContentReader? = nil, hookServer: ClaudeHookServer? = nil) {
+        // Resolve directory NOW (in case cache hasn't populated yet)
+        var dir = cachedDirectories[tab.id]
+        if dir == nil, let contentReader {
+            dir = contentReader.workingDirectory(tty: tab.tty)
+            if let dir { cachedDirectories[tab.id] = dir }
+        }
+
+        // Resolve Claude session ID NOW
+        var claudeSID = cachedClaudeSessionIDs[tab.id]
+        if claudeSID == nil, tab.isClaudeSession, let dir, let hookServer {
+            claudeSID = hookServer.sessionID(forCwd: dir)
+            if let claudeSID { cachedClaudeSessionIDs[tab.id] = claudeSID }
+        }
+
         let session = SavedSession(
             tabID: tab.id,
             title: tab.title,
             summary: summary ?? tab.title,
-            workingDirectory: cachedDirectories[tab.id],
+            workingDirectory: dir,
             app: group.app.rawValue,
             wasClaudeSession: tab.isClaudeSession,
-            claudeSessionID: cachedClaudeSessionIDs[tab.id],
+            claudeSessionID: claudeSID,
             closedAt: Date()
         )
         recentlyClosed.insert(session, at: 0)

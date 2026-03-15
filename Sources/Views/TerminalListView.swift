@@ -4,6 +4,7 @@ struct TerminalListView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var summaryManager: SummaryManager
     @EnvironmentObject var sessionStore: SessionStore
+    @EnvironmentObject var hookServer: ClaudeHookServer
     @State private var selectedIndex: Int? = nil
     @State private var savedExpanded = true
 
@@ -114,7 +115,8 @@ struct TerminalListView: View {
             isSelected: selectedIndex == globalIdx,
             onSelect: { focusTerminal(group: group, tab: tab) },
             onSaveAndClose: {
-                sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id))
+                sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
+                                         contentReader: summaryManager.contentReader, hookServer: hookServer)
             }
         )
     }
@@ -154,7 +156,8 @@ struct TerminalListView: View {
                     isSelected: selectedIndex == startIndex + index,
                     onSelect: { focusTerminal(group: group, tab: tab) },
                     onSaveAndClose: {
-                        sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id))
+                        sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
+                                         contentReader: summaryManager.contentReader, hookServer: hookServer)
                     }
                 )
             }
