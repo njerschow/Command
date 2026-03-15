@@ -6,6 +6,8 @@ final class SessionStore: ObservableObject {
 
     /// Cached working directories for live tabs (updated every scan)
     private var cachedDirectories: [String: String] = [:]
+    /// Cached Claude session IDs for live tabs (by tab ID)
+    private var cachedClaudeSessionIDs: [String: String] = [:]
 
     private let maxSaved = 20
     private let storageURL: URL
@@ -31,6 +33,13 @@ final class SessionStore: ObservableObject {
         cachedDirectories[tabID]
     }
 
+    /// Cache Claude session ID for a live tab
+    func cacheClaudeSessionID(_ sessionID: String?, for tabID: String) {
+        if let sessionID, !sessionID.isEmpty {
+            cachedClaudeSessionIDs[tabID] = sessionID
+        }
+    }
+
     // MARK: - Track Closed Tabs
 
     /// Compare current scan with previous to detect closed tabs, saving their sessions
@@ -51,11 +60,13 @@ final class SessionStore: ObservableObject {
                 workingDirectory: cachedDirectories[tab.id],
                 app: group.app.rawValue,
                 wasClaudeSession: tab.isClaudeSession,
+                claudeSessionID: cachedClaudeSessionIDs[tab.id],
                 closedAt: Date()
             )
             recentlyClosed.insert(session, at: 0)
             changed = true
             cachedDirectories.removeValue(forKey: tab.id)
+            cachedClaudeSessionIDs.removeValue(forKey: tab.id)
         }
 
         if changed {
@@ -77,6 +88,7 @@ final class SessionStore: ObservableObject {
             workingDirectory: cachedDirectories[tab.id],
             app: group.app.rawValue,
             wasClaudeSession: tab.isClaudeSession,
+            claudeSessionID: cachedClaudeSessionIDs[tab.id],
             closedAt: Date()
         )
         recentlyClosed.insert(session, at: 0)
@@ -129,8 +141,13 @@ final class SessionStore: ObservableObject {
 
         let command: String
         if session.wasClaudeSession {
-            // Restore Claude Code session: cd to dir and launch claude
-            command = "cd \\\"\(escapedDir)\\\" && claude"
+            if let sid = session.claudeSessionID {
+                // Resume exact Claude session
+                command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
+            } else {
+                // No session ID — continue most recent in that directory
+                command = "cd \\\"\(escapedDir)\\\" && claude --continue"
+            }
         } else {
             command = "cd \\\"\(escapedDir)\\\" && clear"
         }
@@ -192,9 +209,10 @@ struct SavedSession: Identifiable, Codable {
     let workingDirectory: String?
     let app: String
     let wasClaudeSession: Bool
+    let claudeSessionID: String?
     let closedAt: Date
 
-    init(tabID: String, title: String, summary: String, workingDirectory: String?, app: String, wasClaudeSession: Bool = false, closedAt: Date) {
+    init(tabID: String, title: String, summary: String, workingDirectory: String?, app: String, wasClaudeSession: Bool = false, claudeSessionID: String? = nil, closedAt: Date) {
         self.id = UUID().uuidString
         self.tabID = tabID
         self.title = title
@@ -202,6 +220,7 @@ struct SavedSession: Identifiable, Codable {
         self.workingDirectory = workingDirectory
         self.app = app
         self.wasClaudeSession = wasClaudeSession
+        self.claudeSessionID = claudeSessionID
         self.closedAt = closedAt
     }
 }
