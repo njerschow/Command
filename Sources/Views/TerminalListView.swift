@@ -113,6 +113,7 @@ struct TerminalListView: View {
             context: summaryManager.context(for: tab.id),
             shortcutIndex: globalIdx,
             isSelected: selectedIndex == globalIdx,
+            claudeState: claudeState(for: tab),
             onSelect: { focusTerminal(group: group, tab: tab) },
             onSaveAndClose: {
                 sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
@@ -154,6 +155,7 @@ struct TerminalListView: View {
                     context: summaryManager.context(for: tab.id),
                     shortcutIndex: startIndex + index,
                     isSelected: selectedIndex == startIndex + index,
+                    claudeState: claudeState(for: tab),
                     onSelect: { focusTerminal(group: group, tab: tab) },
                     onSaveAndClose: {
                         sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
@@ -281,6 +283,14 @@ struct TerminalListView: View {
         return false
     }
 
+    /// Look up Claude hook state for a tab by matching its cached cwd
+    private func claudeState(for tab: TerminalTab) -> ClaudeState? {
+        guard tab.isClaudeSession,
+              let cwd = sessionStore.cachedDirectory(for: tab.id),
+              let session = hookServer.session(forCwd: cwd) else { return nil }
+        return session.state
+    }
+
     // MARK: - Actions
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
@@ -357,7 +367,7 @@ struct ClosedSessionRow: View {
             } else {
                 Text(relativeTime(session.closedAt))
                     .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.quaternary)
+                    .foregroundStyle(.tertiary)
             }
         }
         .padding(.leading, 6)
@@ -380,10 +390,20 @@ struct ClosedSessionRow: View {
     private func relativeTime(_ date: Date) -> String {
         let seconds = -date.timeIntervalSinceNow
         if seconds < 60 { return "now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86400 { return "\(Int(seconds / 3600))h" }
-        if seconds < 604800 { return "\(Int(seconds / 86400))d" }
-        return "\(Int(seconds / 604800))w"
+        if seconds < 3600 {
+            let m = Int(seconds / 60)
+            return "\(m)m ago"
+        }
+        if seconds < 86400 {
+            let h = Int(seconds / 3600)
+            return "\(h)h ago"
+        }
+        if seconds < 604800 {
+            let d = Int(seconds / 86400)
+            return "\(d)d ago"
+        }
+        let w = Int(seconds / 604800)
+        return "\(w)w ago"
     }
 }
 

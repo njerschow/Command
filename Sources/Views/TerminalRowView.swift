@@ -8,6 +8,7 @@ struct TerminalRowView: View {
     let context: TerminalContext?
     let shortcutIndex: Int
     var isSelected: Bool = false
+    var claudeState: ClaudeState? = nil
     let onSelect: () -> Void
     var onSaveAndClose: (() -> Void)? = nil
 
@@ -38,7 +39,7 @@ struct TerminalRowView: View {
             onSelect()
         }) {
             HStack(spacing: 8) {
-                StatusDotView(status: effectiveStatus)
+                StatusDotView(status: effectiveStatus, claudeState: claudeState)
 
                 Text(displayTitle)
                     .font(.system(size: 13, weight: isHighlighted ? .medium : .regular))
@@ -105,7 +106,7 @@ struct TerminalRowView: View {
         } else if let lastActive {
             Text(relativeTime(lastActive))
                 .font(.system(size: 11, design: .rounded))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(.tertiary)
                 .transition(.opacity)
         }
     }
@@ -122,10 +123,20 @@ struct TerminalRowView: View {
     private func relativeTime(_ date: Date) -> String {
         let seconds = -date.timeIntervalSinceNow
         if seconds < 60 { return "now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86400 { return "\(Int(seconds / 3600))h" }
-        if seconds < 604800 { return "\(Int(seconds / 86400))d" }
-        return "\(Int(seconds / 604800))w"
+        if seconds < 3600 {
+            let m = Int(seconds / 60)
+            return "\(m)m ago"
+        }
+        if seconds < 86400 {
+            let h = Int(seconds / 3600)
+            return "\(h)h ago"
+        }
+        if seconds < 604800 {
+            let d = Int(seconds / 86400)
+            return "\(d)d ago"
+        }
+        let w = Int(seconds / 604800)
+        return "\(w)w ago"
     }
 }
 
