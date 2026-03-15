@@ -4,44 +4,45 @@ import Foundation
 /// Scans Terminal.app windows and tabs via AppleScript
 final class TerminalAppAdapter {
 
+    private static let delimiter = "|||"
     private var hasLoggedPermissionError = false
 
     func scan() -> [TerminalGroup] {
         guard isRunning() else { return [] }
 
-        // First try a simple check to see if we have Automation permission
-        let checkScript = """
-        tell application "Terminal" to count windows
-        """
+        // Quick permission check
+        let checkScript = "tell application \"Terminal\" to count windows"
         guard let countStr = runAppleScript(checkScript),
               let count = Int(countStr), count > 0 else {
             if !hasLoggedPermissionError {
                 hasLoggedPermissionError = true
-                print("[TerminalAppAdapter] Cannot access Terminal.app — check Automation permission in System Settings > Privacy & Security > Automation")
+                print("[TerminalAppAdapter] Cannot access Terminal.app — check Automation permission")
             }
             return []
         }
         hasLoggedPermissionError = false
 
+        // Full scan — uses ||| as delimiter and ASCII char 10 (LF) for line breaks
+        // AppleScript does NOT interpret \t or \n as escape sequences
         let script = """
         tell application "Terminal"
             set output to ""
+            set lf to (ASCII character 10)
             repeat with w in windows
-                set winID to id of w
+                set winID to (id of w as text)
                 set winName to name of w
-                set tabIndex to 0
-                repeat with t in tabs of w
-                    set tabIndex to tabIndex + 1
-                    set tabName to name of t
+                set tabCount to count of tabs of w
+                repeat with i from 1 to tabCount
+                    set t to tab i of w
                     set tabTTY to tty of t
-                    set tabBusy to busy of t
+                    set tabBusy to (busy of t as text)
                     set tabProcs to processes of t
                     set procList to ""
                     repeat with p in tabProcs
                         if procList is not "" then set procList to procList & ","
                         set procList to procList & (p as text)
                     end repeat
-                    set output to output & winID & "\\t" & winName & "\\t" & tabIndex & "\\t" & tabName & "\\t" & tabTTY & "\\t" & tabBusy & "\\t" & procList & "\\n"
+                    set output to output & winID & "|||" & winName & "|||" & i & "|||" & tabTTY & "|||" & tabBusy & "|||" & procList & lf
                 end repeat
             end repeat
             return output
@@ -61,23 +62,23 @@ final class TerminalAppAdapter {
     private func parseResult(_ raw: String) -> [TerminalGroup] {
         var windowMap: [String: TerminalGroup] = [:]
         var windowOrder: [String] = []
+        let d = Self.delimiter
 
-        for line in raw.components(separatedBy: "\n") where !line.isEmpty {
-            let parts = line.components(separatedBy: "\t")
-            guard parts.count >= 7 else { continue }
+        for line in raw.components(separatedBy: "\n") where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            let parts = line.components(separatedBy: d)
+            guard parts.count >= 6 else { continue }
 
             let winID = parts[0].trimmingCharacters(in: .whitespaces)
             let winName = parts[1].trimmingCharacters(in: .whitespaces)
-            let tabIndex = Int(parts[2].trimmingCharacters(in: .whitespaces)) ?? 0
-            let tabName = parts[3].trimmingCharacters(in: .whitespaces)
-            let tty = parts[4].trimmingCharacters(in: .whitespaces)
-            let busy = parts[5].trimmingCharacters(in: .whitespaces) == "true"
-            let processes = parts[6].trimmingCharacters(in: .whitespaces)
+            let tabIndex = Int(parts[2].trimmingCharacters(in: .whitespaces)) ?? 1
+            let tty = parts[3].trimmingCharacters(in: .whitespaces)
+            let busy = parts[4].trimmingCharacters(in: .whitespaces) == "true"
+            let processes = parts[5].trimmingCharacters(in: .whitespaces)
                 .components(separatedBy: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
 
             let status = determineStatus(busy: busy, processes: processes)
-            let displayTitle = simplifyTitle(tabName)
+            let displayTitle = simplifyTitle(winName)
 
             let tab = TerminalTab(
                 id: "terminal-\(winID)-\(tabIndex)",
@@ -106,8 +107,9 @@ final class TerminalAppAdapter {
     }
 
     private func determineStatus(busy: Bool, processes: [String]) -> TerminalStatus {
-        // Check if Claude Code is running and waiting
         let hasClaude = processes.contains { $0.contains("claude") }
+
+        // Claude running but tab not busy = Claude finished, waiting for user
         if hasClaude && !busy {
             return .actionRequired
         }
@@ -123,22 +125,29 @@ final class TerminalAppAdapter {
     }
 
     private func simplifyTitle(_ title: String) -> String {
-        // Terminal.app titles are often like "user@host: ~/path — -zsh"
-        // Try to extract the useful part
         var simplified = title
+
+        // Remove dimension suffix like "— 147×70"
+        if let dimRange = simplified.range(of: #" — \d+×\d+$"#, options: .regularExpression) {
+            simplified = String(simplified[..<dimRange.lowerBound])
+        }
 
         // Remove "— -zsh", "— bash" etc. from the end
         if let dashRange = simplified.range(of: " — ", options: .backwards) {
-            let suffix = String(simplified[dashRange.upperBound...])
+            let suffix = String(simplified[dashRange.upperBound...]).trimmingCharacters(in: .whitespaces)
             let shells = ["-zsh", "zsh", "-bash", "bash", "fish", "-fish", "login"]
-            if shells.contains(suffix.trimmingCharacters(in: .whitespaces)) {
+            if shells.contains(suffix) {
                 simplified = String(simplified[..<dashRange.lowerBound])
             }
         }
 
         // Remove user@host: prefix
         if let colonSpace = simplified.range(of: ": ") {
-            simplified = String(simplified[colonSpace.upperBound...])
+            let prefix = String(simplified[..<colonSpace.lowerBound])
+            // Only strip if it looks like user@host
+            if prefix.contains("@") {
+                simplified = String(simplified[colonSpace.upperBound...])
+            }
         }
 
         // Shorten home directory
@@ -150,7 +159,7 @@ final class TerminalAppAdapter {
 
     private func simplifyWindowTitle(_ title: String) -> String {
         let simplified = simplifyTitle(title)
-        // For window title, just use "Terminal" if it's just a path
+        // For window title, just use "Terminal" if it's only a path
         if simplified.hasPrefix("~") || simplified.hasPrefix("/") {
             return "Terminal"
         }
