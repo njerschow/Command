@@ -3,5 +3,8 @@ build/
 .swiftpm/
 *.xcodeproj
 *.xcworkspace
+xcuserdata/
 DerivedData/
 .DS_Store
+server/node_modules/
+server/feedback.jsonl
