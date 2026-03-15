@@ -8,7 +8,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState = AppState()
     private let scanner = TerminalScanner()
     private let hotkeyManager = HotkeyManager()
-    private let claudeServer = ClaudeHookServer()
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Lifecycle
@@ -19,7 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         setupPopover()
         setupHotkey()
-        setupClaudeServer()
         startScanning()
 
         // Update badge when terminal state changes
@@ -32,7 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         scanner.stopPolling()
         hotkeyManager.unregister()
-        claudeServer.stop()
     }
 
     // MARK: - Hotkey
@@ -43,21 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.togglePopover()
             }
         }
-    }
-
-    // MARK: - Claude Code Integration
-
-    private func setupClaudeServer() {
-        claudeServer.onSessionUpdate = { [weak self] in
-            // Trigger a rescan when Claude state changes
-            guard let self else { return }
-            let groups = self.scanner.scan()
-            self.appState.terminalGroups = groups
-        }
-        claudeServer.start()
-
-        // Give the scanner access to Claude session data
-        scanner.claudeServer = claudeServer
     }
 
     // MARK: - Scanning
