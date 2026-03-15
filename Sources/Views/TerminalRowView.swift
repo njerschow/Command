@@ -9,6 +9,8 @@ struct TerminalRowView: View {
     let shortcutIndex: Int
     var isSelected: Bool = false
     var claudeState: ClaudeState? = nil
+    var workingDirectory: String? = nil
+    var claudeSessionID: String? = nil
     let onSelect: () -> Void
     var onSaveAndClose: (() -> Void)? = nil
 
@@ -25,11 +27,6 @@ struct TerminalRowView: View {
         return tab.title
     }
 
-    /// Merge process-based status with content-based override
-    private var effectiveStatus: TerminalStatus {
-        context?.statusOverride ?? tab.status
-    }
-
     var body: some View {
         Button(action: {
             withAnimation(.spring(duration: 0.15)) { isPressed = true }
@@ -39,24 +36,23 @@ struct TerminalRowView: View {
             onSelect()
         }) {
             HStack(spacing: 8) {
-                StatusDotView(status: effectiveStatus, claudeState: claudeState)
+                StatusDotView(status: tab.status, claudeState: claudeState, sessionTag: tab.sessionTag)
 
-                Text(displayTitle)
-                    .font(.system(size: 13, weight: isHighlighted ? .medium : .regular))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(displayTitle)
+                            .font(.system(size: 13, weight: isHighlighted ? .medium : .regular))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
-                if tab.isClaudeSession || claudeState != nil {
-                    Text("claude")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(Color.primary.opacity(0.06))
-                        )
+                        if claudeState != nil {
+                            SessionTagView(tag: "claude")
+                        } else if tab.sessionTag != "term" {
+                            SessionTagView(tag: tab.sessionTag)
+                        }
+                    }
+
                 }
 
                 Spacer(minLength: 4)
@@ -89,7 +85,9 @@ struct TerminalRowView: View {
         .animation(.spring(duration: 0.2, bounce: 0.1), value: isSelected)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .popover(isPresented: $showInfo, arrowEdge: .trailing) {
-            InfoPopoverView(tab: tab, context: context, lastActive: lastActive, onSaveAndClose: onSaveAndClose)
+            InfoPopoverView(tab: tab, context: context, lastActive: lastActive,
+                            workingDirectory: workingDirectory, claudeSessionID: claudeSessionID,
+                            claudeState: claudeState, onSaveAndClose: onSaveAndClose)
         }
     }
 
@@ -158,6 +156,9 @@ struct InfoPopoverView: View {
     let tab: TerminalTab
     let context: TerminalContext?
     let lastActive: Date?
+    var workingDirectory: String? = nil
+    var claudeSessionID: String? = nil
+    var claudeState: ClaudeState? = nil
     var onSaveAndClose: (() -> Void)? = nil
 
     var body: some View {
@@ -184,10 +185,24 @@ struct InfoPopoverView: View {
             }
 
             // Technical
+            if let dir = workingDirectory {
+                infoRow("Directory", dir.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+            }
             if let tty = tab.tty, !tty.isEmpty {
                 infoRow("TTY", tty)
             }
             infoRow("Status", statusLabel(tab.status))
+
+            // Claude info
+            if tab.isClaudeSession || claudeState != nil {
+                if let state = claudeState {
+                    infoRow("Claude", claudeStateLabel(state))
+                }
+                if let sid = claudeSessionID {
+                    infoRow("Session", String(sid.prefix(12)) + "…")
+                }
+                infoRow("Saveable", (workingDirectory != nil && (claudeSessionID != nil || !tab.isClaudeSession)) ? "Yes" : "No — missing data")
+            }
 
             // History
             if let ctx = context, !ctx.historyLog.isEmpty {
@@ -207,8 +222,9 @@ struct InfoPopoverView: View {
                 }
             }
 
-            // Save & Close
-            if let onSaveAndClose {
+            // Save & Close — only show if we have the data needed for restore
+            let isSaveable = workingDirectory != nil && (claudeSessionID != nil || !tab.isClaudeSession)
+            if let onSaveAndClose, isSaveable {
                 Divider()
                 Button(action: onSaveAndClose) {
                     HStack(spacing: 4) {
@@ -263,5 +279,13 @@ struct InfoPopoverView: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return f.string(from: date)
+    }
+
+    private func claudeStateLabel(_ state: ClaudeState) -> String {
+        switch state {
+        case .working: return "Working"
+        case .waitingForUser: return "Waiting for input"
+        case .needsPermission: return "Needs permission"
+        }
     }
 }

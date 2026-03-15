@@ -11,9 +11,6 @@ struct TerminalContext {
     var lastSummarized: Date = .distantPast
     var unchangedCount: Int = 0
 
-    /// Content-based status override (e.g., detected input prompt)
-    var statusOverride: TerminalStatus? = nil
-
     enum SummaryMethod: String {
         case localHeuristic = "Local heuristic"
         case aiGenerated = "AI (Haiku)"

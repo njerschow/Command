@@ -5,9 +5,11 @@ struct TerminalListView: View {
     @EnvironmentObject var summaryManager: SummaryManager
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var hookServer: ClaudeHookServer
+    @EnvironmentObject var updateChecker: UpdateChecker
     @State private var selectedIndex: Int? = nil
     @State private var savedExpanded = true
     @State private var showHistory = false
+    @State private var showUpdatePopover = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +27,7 @@ struct TerminalListView: View {
             SessionHistoryView(
                 sessions: sessionStore.recentlyClosed,
                 onRestore: { session in
-                    sessionStore.restore(session)
+                    restoreOrFocus(session)
                     showHistory = false
                 },
                 onDismiss: { session in
@@ -122,6 +124,7 @@ struct TerminalListView: View {
 
     private func singleTabRow(group: TerminalGroup, tab: TerminalTab) -> some View {
         let globalIdx = appState.globalIndex(for: group)
+        let cwd = sessionStore.cachedDirectory(for: tab.id)
         return TerminalRowView(
             tab: tab,
             group: group,
@@ -131,6 +134,8 @@ struct TerminalListView: View {
             shortcutIndex: globalIdx,
             isSelected: selectedIndex == globalIdx,
             claudeState: claudeState(for: tab),
+            workingDirectory: cwd,
+            claudeSessionID: cwd.flatMap { hookServer.sessionID(forCwd: $0) },
             onSelect: { focusTerminal(group: group, tab: tab) },
             onSaveAndClose: {
                 sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
@@ -164,6 +169,7 @@ struct TerminalListView: View {
             .padding(.bottom, 2)
 
             ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
+                let cwd = sessionStore.cachedDirectory(for: tab.id)
                 TerminalRowView(
                     tab: tab,
                     group: group,
@@ -173,6 +179,8 @@ struct TerminalListView: View {
                     shortcutIndex: startIndex + index,
                     isSelected: selectedIndex == startIndex + index,
                     claudeState: claudeState(for: tab),
+                    workingDirectory: cwd,
+                    claudeSessionID: cwd.flatMap { hookServer.sessionID(forCwd: $0) },
                     onSelect: { focusTerminal(group: group, tab: tab) },
                     onSaveAndClose: {
                         sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
@@ -240,7 +248,7 @@ struct TerminalListView: View {
                         session: session,
                         isActive: isSessionActive(session)
                     ) {
-                        sessionStore.restore(session)
+                        restoreOrFocus(session)
                     } onDismiss: {
                         withAnimation { sessionStore.dismiss(session) }
                     }
@@ -286,9 +294,26 @@ struct TerminalListView: View {
             }
             .help("Session History")
 
-            Text("v0.3")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.quaternary)
+            if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
+                Button(action: { showUpdatePopover.toggle() }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 9))
+                        Text("v\(version) available")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    }
+                    .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showUpdatePopover, arrowEdge: .top) {
+                    UpdatePopoverView()
+                        .environmentObject(updateChecker)
+                }
+            } else {
+                Text("v\(updateChecker.currentVersion)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.quaternary)
+            }
 
             Button(action: {
                 if optionHeld {
@@ -329,20 +354,7 @@ struct TerminalListView: View {
 
     /// Check if a saved session has been restored (matching cwd in active tabs)
     private func isSessionActive(_ session: SavedSession) -> Bool {
-        // Immediately active if user clicked Restore
-        if sessionStore.restoredSessionIDs.contains(session.id) {
-            return true
-        }
-        guard let dir = session.workingDirectory else { return false }
-        // Check cached directories
-        for group in appState.terminalGroups {
-            for tab in group.tabs {
-                if sessionStore.cachedDirectory(for: tab.id) == dir {
-                    return true
-                }
-            }
-        }
-        return false
+        sessionStore.restoredSessionIDs.contains(session.id)
     }
 
     /// Look up Claude hook state for a tab by matching its cached cwd
@@ -354,6 +366,26 @@ struct TerminalListView: View {
     }
 
     // MARK: - Actions
+
+    private func restoreOrFocus(_ session: SavedSession) {
+        if let (group, tab) = findActiveTab(for: session) {
+            focusTerminal(group: group, tab: tab)
+        } else {
+            sessionStore.restore(session)
+        }
+    }
+
+    private func findActiveTab(for session: SavedSession) -> (TerminalGroup, TerminalTab)? {
+        guard let dir = session.workingDirectory else { return nil }
+        for group in appState.terminalGroups {
+            for tab in group.tabs {
+                if sessionStore.cachedDirectory(for: tab.id) == dir {
+                    return (group, tab)
+                }
+            }
+        }
+        return nil
+    }
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
         WindowFocuser.shared.focus(group: group, tab: tab)
@@ -385,16 +417,8 @@ struct ClosedSessionRow: View {
                         .foregroundStyle(isActive ? .tertiary : .secondary)
                         .lineLimit(1)
 
-                    if session.wasClaudeSession {
-                        Text("claude")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 3)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(Color.primary.opacity(0.06))
-                            )
+                    if session.effectiveTag != "term" {
+                        SessionTagView(tag: session.effectiveTag)
                     }
                 }
 
@@ -417,15 +441,13 @@ struct ClosedSessionRow: View {
                 .buttonStyle(.plain)
                 .transition(.opacity)
 
-                if !isActive {
-                    Button(action: onRestore) {
-                        Image(systemName: "arrow.uturn.left")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.opacity)
+                Button(action: onRestore) {
+                    Image(systemName: isActive ? "macwindow" : "arrow.uturn.left")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
+                .transition(.opacity)
             } else {
                 Text(relativeTime(session.closedAt))
                     .font(.system(size: 11, design: .rounded))
@@ -441,7 +463,7 @@ struct ClosedSessionRow: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            if !isActive { onRestore() }
+            onRestore()
         }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
@@ -535,6 +557,22 @@ struct SessionHistoryView: View {
     let onDismiss: (SavedSession) -> Void
     let onClearAll: () -> Void
 
+    @State private var searchText = ""
+    @StateObject private var searcher = SessionSearcher()
+
+    private var isSearching: Bool { !searchText.isEmpty }
+
+    private var displaySessions: [SavedSession] {
+        if !isSearching { return sessions }
+        return searcher.keywordResults.map(\.session)
+    }
+
+    /// AI results that aren't already in keyword results
+    private var uniqueAIResults: [SavedSession] {
+        let keywordIDs = Set(searcher.keywordResults.map(\.session.id))
+        return searcher.aiResults.filter { !keywordIDs.contains($0.id) }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -552,6 +590,43 @@ struct SessionHistoryView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
 
+            // Search bar
+            if !sessions.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                    TextField("Search sessions...", text: $searchText)
+                        .font(.system(size: 13))
+                        .textFieldStyle(.plain)
+                    if isSearching {
+                        Button(action: {
+                            searchText = ""
+                            searcher.cancelAISearch()
+                            searcher.keywordResults = []
+                            searcher.aiResults = []
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.04))
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+                .onChange(of: searchText) { _, query in
+                    searcher.keywordSearch(query: query, sessions: sessions)
+                    searcher.aiSearch(query: query, sessions: sessions)
+                }
+            }
+
             Divider()
 
             if sessions.isEmpty {
@@ -564,18 +639,67 @@ struct SessionHistoryView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isSearching && displaySessions.isEmpty && !searcher.isAISearching && uniqueAIResults.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(.tertiary)
+                    Text("No matches for \"\(searchText)\"")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 1) {
-                        ForEach(sessions) { session in
+                        // Keyword results (or all sessions when not searching)
+                        if isSearching && !displaySessions.isEmpty {
+                            sectionHeader("Matches")
+                        }
+                        ForEach(displaySessions) { session in
                             historyRow(session)
+                        }
+
+                        // AI results section
+                        if isSearching {
+                            if searcher.isAISearching {
+                                aiLoadingRow
+                            } else if !uniqueAIResults.isEmpty {
+                                sectionHeader("AI Results")
+                                ForEach(uniqueAIResults) { session in
+                                    historyRow(session)
+                                }
+                            }
                         }
                     }
                     .padding(.vertical, 6)
                 }
             }
         }
-        .frame(width: 420, height: 360)
+        .frame(width: 420, height: 400)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+    }
+
+    private var aiLoadingRow: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Searching with AI...")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private func historyRow(_ session: SavedSession) -> some View {
@@ -592,16 +716,8 @@ struct SessionHistoryView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    if session.wasClaudeSession {
-                        Text("claude")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                    .fill(Color.primary.opacity(0.06))
-                            )
+                    if session.effectiveTag != "term" {
+                        SessionTagView(tag: session.effectiveTag)
                     }
                 }
 

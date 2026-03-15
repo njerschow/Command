@@ -96,8 +96,6 @@ final class SummaryManager: ObservableObject {
                     if !isFirstCheck {
                         ctx.lastChanged = Date()
                     }
-                    ctx.statusOverride = self.detectInputWaiting(content: content)
-
                     // Queue for AI — always use Claude for summaries
                     aiBatch.append((
                         tab.id, group.windowID, tab.tabIndex,
@@ -134,44 +132,6 @@ final class SummaryManager: ObservableObject {
                 self?.isRefreshing = false
             }
         }
-    }
-
-    // MARK: - Input Detection
-
-    /// Detect if terminal is waiting for human input based on content patterns
-    private func detectInputWaiting(content: String) -> TerminalStatus? {
-        let lines = content.components(separatedBy: "\n")
-        guard let lastLine = lines.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
-            return nil
-        }
-        let trimmed = lastLine.trimmingCharacters(in: .whitespaces).lowercased()
-
-        // Interactive prompts: [y/N], (yes/no), Continue?
-        if trimmed.hasSuffix("[y/n]") || trimmed.hasSuffix("[y/n]:") ||
-           trimmed.hasSuffix("(yes/no)") || trimmed.hasSuffix("(yes/no)?") ||
-           trimmed.hasSuffix("continue?") || trimmed.hasSuffix("proceed?") {
-            return .actionRequired
-        }
-
-        // Password/passphrase prompts
-        if trimmed.hasPrefix("password") || trimmed.contains("passphrase") ||
-           trimmed.hasPrefix("enter password") || trimmed.hasPrefix("sudo") {
-            return .actionRequired
-        }
-
-        // REPL prompts waiting for input
-        if trimmed.hasSuffix(">>> ") || trimmed.hasSuffix("... ") ||
-           trimmed.hasSuffix("irb>") || trimmed.hasSuffix("mysql>") ||
-           trimmed.hasSuffix("postgres=>") || trimmed.hasSuffix("sqlite>") {
-            return .actionRequired
-        }
-
-        // Claude Code waiting (prompt character at end)
-        if trimmed.hasSuffix("❯") || trimmed.hasSuffix("❯ ") {
-            return .actionRequired
-        }
-
-        return nil
     }
 
     // MARK: - AI Summary Generation
@@ -285,10 +245,6 @@ final class SummaryManager: ObservableObject {
     func lastActivity(for tabID: String) -> Date? {
         let d = contexts[tabID]?.lastChanged
         return d == .distantPast ? nil : d
-    }
-
-    func statusOverride(for tabID: String) -> TerminalStatus? {
-        contexts[tabID]?.statusOverride
     }
 
     func context(for tabID: String) -> TerminalContext? {

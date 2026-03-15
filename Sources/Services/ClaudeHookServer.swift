@@ -10,11 +10,61 @@ final class ClaudeHookServer: ObservableObject {
     private let queue = DispatchQueue(label: "com.command.claude-hooks", qos: .utility)
 
     /// Active Claude Code sessions: session_id -> ClaudeSession
+    /// Access from main thread only; background work uses pendingSessions + lock
     @Published private(set) var sessions: [String: ClaudeSession] = [:]
+    private var pendingSessions: [String: ClaudeSession] = [:]
     private let lock = NSLock()
 
     init(port: UInt16 = 19220) {
         self.port = port
+    }
+
+    // MARK: - Hook Auto-Configuration
+
+    /// Ensure ~/.claude/settings.json has the HTTP hooks Command needs
+    func ensureHooksConfigured() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let settingsURL = home.appendingPathComponent(".claude/settings.json")
+        let hookURL = "http://localhost:\(port)/claude-event"
+
+        var root: [String: Any]
+        if FileManager.default.fileExists(atPath: settingsURL.path),
+           let data = try? Data(contentsOf: settingsURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            root = json
+        } else {
+            // Create ~/.claude/ if needed
+            let claudeDir = home.appendingPathComponent(".claude")
+            try? FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+            root = [:]
+        }
+
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+        let requiredEvents = ["SessionStart", "SessionEnd", "Stop", "Notification", "PreToolUse"]
+        let commandHook: [String: Any] = ["type": "http", "url": hookURL]
+        var changed = false
+
+        for event in requiredEvents {
+            var entries = hooks[event] as? [[String: Any]] ?? []
+            // Check if our hook URL is already present in any entry
+            let alreadyPresent = entries.contains { entry in
+                guard let entryHooks = entry["hooks"] as? [[String: Any]] else { return false }
+                return entryHooks.contains { ($0["url"] as? String) == hookURL }
+            }
+            if !alreadyPresent {
+                entries.append(["hooks": [commandHook]])
+                hooks[event] = entries
+                changed = true
+            }
+        }
+
+        if changed {
+            root["hooks"] = hooks
+            if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: settingsURL, options: .atomic)
+                print("[ClaudeHookServer] Auto-configured hooks in ~/.claude/settings.json")
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -120,7 +170,7 @@ final class ClaudeHookServer: ObservableObject {
 
         lock.lock()
 
-        var session = sessions[sessionID] ?? ClaudeSession(
+        var session = pendingSessions[sessionID] ?? ClaudeSession(
             sessionID: sessionID, cwd: cwd, state: .working
         )
 
@@ -159,9 +209,10 @@ final class ClaudeHookServer: ObservableObject {
             session.lastEvent = "Session started"
 
         case "SessionEnd":
-            sessions.removeValue(forKey: sessionID)
+            pendingSessions.removeValue(forKey: sessionID)
+            let snapshot = pendingSessions
             lock.unlock()
-            DispatchQueue.main.async { self.objectWillChange.send() }
+            DispatchQueue.main.async { self.sessions = snapshot }
             return
 
         default:
@@ -170,10 +221,89 @@ final class ClaudeHookServer: ObservableObject {
 
         session.cwd = cwd
         session.lastUpdated = Date()
-        sessions[sessionID] = session
+        pendingSessions[sessionID] = session
+        let snapshot = pendingSessions
         lock.unlock()
 
-        DispatchQueue.main.async { self.objectWillChange.send() }
+        DispatchQueue.main.async { self.sessions = snapshot }
+    }
+
+    // MARK: - Discover Existing Sessions
+
+    /// On startup, detect already-running Claude CLI processes and register them
+    func discoverExistingSessions() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            guard let psOutput = self.shell("ps -eo pid,args | grep -E '\\bclaude\\b' | grep -v grep | grep -v Claude.app") else { return }
+
+            var discovered: [(sessionID: String, cwd: String)] = []
+
+            for line in psOutput.split(separator: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // Extract PID (first token)
+                let parts = trimmed.split(separator: " ", maxSplits: 1)
+                guard let pid = parts.first.flatMap({ Int($0) }) else { continue }
+
+                // Get CWD via lsof
+                guard let cwd = self.shell("lsof -a -d cwd -p \(pid) -Fn 2>/dev/null | grep '^n/' | head -1 | sed 's/^n//'")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !cwd.isEmpty else { continue }
+
+                // Map CWD to Claude project directory
+                let encodedPath = cwd.replacingOccurrences(of: "/", with: "-")
+                let projectDir = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".claude/projects/\(encodedPath)")
+
+                // Find most recently modified .jsonl = active session
+                guard let contents = try? FileManager.default.contentsOfDirectory(
+                    at: projectDir, includingPropertiesForKeys: [.contentModificationDateKey]
+                ) else { continue }
+
+                let jsonlFiles = contents.filter { $0.pathExtension == "jsonl" }
+                let sorted = jsonlFiles.compactMap { url -> (URL, Date)? in
+                    guard let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return nil }
+                    return (url, date)
+                }.sorted { $0.1 > $1.1 }
+
+                guard let mostRecent = sorted.first,
+                      // Only consider files modified in the last 30 minutes as "active"
+                      Date().timeIntervalSince(mostRecent.1) < 1800 else { continue }
+
+                let sessionID = mostRecent.0.deletingPathExtension().lastPathComponent
+                discovered.append((sessionID: sessionID, cwd: cwd))
+            }
+
+            guard !discovered.isEmpty else { return }
+
+            self.lock.lock()
+            for entry in discovered {
+                // Don't overwrite sessions already registered via hooks
+                if self.pendingSessions[entry.sessionID] == nil {
+                    self.pendingSessions[entry.sessionID] = ClaudeSession(
+                        sessionID: entry.sessionID,
+                        cwd: entry.cwd,
+                        state: .waitingForUser
+                    )
+                }
+            }
+            let snapshot = self.pendingSessions
+            self.lock.unlock()
+
+            DispatchQueue.main.async { self.sessions = snapshot }
+            print("[ClaudeHookServer] Discovered \(discovered.count) existing session(s)")
+        }
+    }
+
+    private func shell(_ command: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", command]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - Query

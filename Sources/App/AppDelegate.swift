@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sessionStore = SessionStore()
     private let hookServer = ClaudeHookServer()
     private let hotkeyManager = HotkeyManager()
+    private let updateChecker = UpdateChecker()
     private var cancellables = Set<AnyCancellable>()
     private var lastDirCacheTime: Date = .distantPast
 
@@ -24,7 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkey()
         startScanning()
         summaryManager.start(appState: appState)
+        hookServer.ensureHooksConfigured()
         hookServer.start()
+        hookServer.discoverExistingSessions()
+        updateChecker.checkForUpdates()
 
         // Update badge when terminal state or hook state changes
         appState.$terminalGroups
@@ -62,30 +66,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let previous = self.appState.terminalGroups
 
-            // Find new tabs that need immediate directory caching
-            let previousIDs = Set(previous.flatMap { $0.tabs }.map { $0.id })
-            let newTabs = groups.flatMap { $0.tabs }.filter { !previousIDs.contains($0.id) }
-            let needsFullCache = Date().timeIntervalSince(self.lastDirCacheTime) > 30
+            // Find tabs that need directory caching:
+            // - Brand new tabs (not in previous scan)
+            // - Existing tabs that still have no cached directory (TTY wasn't ready last time)
+            let allTabs = groups.flatMap { $0.tabs }
+            let uncachedTabs = allTabs.filter { self.sessionStore.cachedDirectory(for: $0.id) == nil }
+            let needsFullCache = Date().timeIntervalSince(self.lastDirCacheTime) > 60
 
-            // Cache working directories: immediately for new tabs, every 30s for all
-            if needsFullCache || !newTabs.isEmpty {
-                if needsFullCache { self.lastDirCacheTime = Date() }
-                let tabsToCache = needsFullCache ? groups.flatMap({ $0.tabs }) : newTabs
-                // New tabs: cache synchronously so directory is available before next scan
-                // Full refresh: can be async since we already have cached values
-                if !newTabs.isEmpty && !needsFullCache {
-                    // Only new tabs — resolve synchronously on this thread
-                    for tab in tabsToCache {
+            // Cache working directories:
+            // 1. Always sync-cache tabs with no cached directory (new or pre-existing on first launch)
+            // 2. Periodically async-refresh already-cached tabs + content every 60s
+            if !uncachedTabs.isEmpty {
+                for tab in uncachedTabs {
+                    if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
+                        self.sessionStore.cacheDirectory(dir, for: tab.id)
+                    }
+                }
+            }
+            if needsFullCache {
+                self.lastDirCacheTime = Date()
+                let groupsCopy = groups
+                DispatchQueue.global(qos: .utility).async {
+                    for tab in allTabs {
                         if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
-                            self.sessionStore.cacheDirectory(dir, for: tab.id)
+                            DispatchQueue.main.async {
+                                self.sessionStore.cacheDirectory(dir, for: tab.id)
+                            }
                         }
                     }
-                } else {
-                    DispatchQueue.global(qos: .utility).async {
-                        for tab in tabsToCache {
-                            if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
+                    // Cache last 500 lines of content for each tab (for session history)
+                    for group in groupsCopy {
+                        for tab in group.tabs {
+                            if let content = self.summaryManager.contentReader.readHistory(
+                                windowID: group.windowID, tabIndex: tab.tabIndex, app: group.app, lineCount: 500
+                            ) {
                                 DispatchQueue.main.async {
-                                    self.sessionStore.cacheDirectory(dir, for: tab.id)
+                                    self.sessionStore.cacheContent(content, for: tab.id)
                                 }
                             }
                         }
@@ -93,9 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            // Cache Claude session IDs by matching cached cwd to hook server sessions
+            // Cache Claude session IDs and window frames
             for group in groups {
+                // Window frame — one call per window, shared by all tabs in the group
+                let frame = SessionStore.captureWindowFrame(app: group.app, windowID: group.windowID)
                 for tab in group.tabs {
+                    self.sessionStore.cacheWindowFrame(frame, for: tab.id)
                     if tab.isClaudeSession,
                        let cwd = self.sessionStore.cachedDirectory(for: tab.id),
                        let sid = self.hookServer.sessionID(forCwd: cwd) {
@@ -115,6 +134,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             self.appState.updateActivity(groups: groups, previous: previous)
             self.appState.terminalGroups = groups
+
+            // Prune restored session IDs whose terminal is no longer open
+            let activeDirs = Set(allTabs.compactMap { self.sessionStore.cachedDirectory(for: $0.id) })
+            self.sessionStore.pruneRestoredSessions(activeDirectories: activeDirs)
         }
     }
 
@@ -166,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(summaryManager)
             .environmentObject(sessionStore)
             .environmentObject(hookServer)
+            .environmentObject(updateChecker)
 
         let hosting = NSHostingController(rootView: contentView)
         hosting.sizingOptions = .preferredContentSize
@@ -189,6 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         summaryManager.refreshIfNeeded()
+        updateChecker.checkForUpdates()
         NSApp.activate(ignoringOtherApps: true)
     }
 

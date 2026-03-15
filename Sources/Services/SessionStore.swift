@@ -8,6 +8,10 @@ final class SessionStore: ObservableObject {
     private var cachedDirectories: [String: String] = [:]
     /// Cached Claude session IDs for live tabs (by tab ID)
     private var cachedClaudeSessionIDs: [String: String] = [:]
+    /// Cached window frames for live tabs (by tab ID)
+    private var cachedWindowFrames: [String: WindowFrame] = [:]
+    /// Cached terminal content for live tabs (last 500 lines, updated periodically)
+    private var cachedContent: [String: String] = [:]
     /// Tab IDs explicitly saved via Save & Close (auto-expires after 30s)
     private var explicitlySaved: [String: Date] = [:]
     /// Session IDs that have been restored (shown as active/green)
@@ -44,6 +48,48 @@ final class SessionStore: ObservableObject {
         }
     }
 
+    // MARK: - Content Cache
+
+    func cacheContent(_ content: String?, for tabID: String) {
+        if let content, !content.isEmpty {
+            cachedContent[tabID] = content
+        }
+    }
+
+    // MARK: - Window Frame Cache
+
+    func cacheWindowFrame(_ frame: WindowFrame?, for tabID: String) {
+        if let frame {
+            cachedWindowFrames[tabID] = frame
+        }
+    }
+
+    /// Capture window bounds for a terminal window via AppleScript
+    static func captureWindowFrame(app: TerminalApp, windowID: Int) -> WindowFrame? {
+        let appName: String
+        switch app {
+        case .iterm: appName = "iTerm2"
+        default: appName = "Terminal"
+        }
+
+        let script = """
+        tell application "\(appName)"
+            repeat with w in windows
+                if id of w is \(windowID) then
+                    set wBounds to bounds of w
+                    return (item 1 of wBounds as text) & "," & (item 2 of wBounds as text) & "," & (item 3 of wBounds as text) & "," & (item 4 of wBounds as text)
+                end if
+            end repeat
+        end tell
+        """
+        let appleScript = NSAppleScript(source: script)
+        var error: NSDictionary?
+        guard let result = appleScript?.executeAndReturnError(&error).stringValue else { return nil }
+        let parts = result.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: CharacterSet.whitespaces)) }
+        guard parts.count == 4 else { return nil }
+        return WindowFrame(x: parts[0], y: parts[1], width: parts[2] - parts[0], height: parts[3] - parts[1])
+    }
+
     // MARK: - Track Closed Tabs
 
     func trackClosed(
@@ -61,6 +107,8 @@ final class SessionStore: ObservableObject {
                Date().timeIntervalSince(savedAt) < 30 {
                 cachedDirectories.removeValue(forKey: tab.id)
                 cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                cachedWindowFrames.removeValue(forKey: tab.id)
+                cachedContent.removeValue(forKey: tab.id)
                 continue
             }
 
@@ -68,6 +116,8 @@ final class SessionStore: ObservableObject {
             guard let dir = cachedDirectories[tab.id] else {
                 cachedDirectories.removeValue(forKey: tab.id)
                 cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                cachedWindowFrames.removeValue(forKey: tab.id)
+                cachedContent.removeValue(forKey: tab.id)
                 continue
             }
 
@@ -76,9 +126,13 @@ final class SessionStore: ObservableObject {
             if tab.isClaudeSession && claudeSID == nil {
                 cachedDirectories.removeValue(forKey: tab.id)
                 cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                cachedWindowFrames.removeValue(forKey: tab.id)
+                cachedContent.removeValue(forKey: tab.id)
                 continue
             }
 
+            let frame = cachedWindowFrames[tab.id]
+            let content = cachedContent[tab.id]
             let session = SavedSession(
                 tabID: tab.id,
                 title: tab.title,
@@ -87,12 +141,17 @@ final class SessionStore: ObservableObject {
                 app: group.app.rawValue,
                 wasClaudeSession: tab.isClaudeSession,
                 claudeSessionID: claudeSID,
+                windowFrame: frame,
+                sessionTag: tab.sessionTag,
+                content: content,
                 closedAt: Date()
             )
             recentlyClosed.insert(session, at: 0)
             changed = true
             cachedDirectories.removeValue(forKey: tab.id)
             cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+            cachedWindowFrames.removeValue(forKey: tab.id)
+            cachedContent.removeValue(forKey: tab.id)
         }
 
         if changed {
@@ -133,6 +192,11 @@ final class SessionStore: ObservableObject {
             return
         }
 
+        // Capture window frame and content before closing
+        let frame = SessionStore.captureWindowFrame(app: group.app, windowID: group.windowID)
+        let content = contentReader?.readHistory(windowID: group.windowID, tabIndex: tab.tabIndex, app: group.app, lineCount: 500)
+            ?? cachedContent[tab.id]
+
         let session = SavedSession(
             tabID: tab.id,
             title: tab.title,
@@ -141,6 +205,9 @@ final class SessionStore: ObservableObject {
             app: group.app.rawValue,
             wasClaudeSession: tab.isClaudeSession,
             claudeSessionID: claudeSID,
+            windowFrame: frame,
+            sessionTag: tab.sessionTag,
+            content: content,
             closedAt: Date()
         )
         recentlyClosed.insert(session, at: 0)
@@ -210,10 +277,16 @@ final class SessionStore: ObservableObject {
             appName = "Terminal"
         }
 
+        // Build restore script — optionally set window bounds
+        var setBounds = ""
+        if let frame = session.windowFrame {
+            setBounds = "\n            set bounds of window 1 to {\(frame.x), \(frame.y), \(frame.x + frame.width), \(frame.y + frame.height)}"
+        }
+
         let script = """
         tell application "\(appName)"
             activate
-            do script "\(command)"
+            do script "\(command)"\(setBounds)
         end tell
         """
         let appleScript = NSAppleScript(source: script)
@@ -231,6 +304,18 @@ final class SessionStore: ObservableObject {
     func dismiss(_ session: SavedSession) {
         recentlyClosed.removeAll { $0.id == session.id }
         restoredSessionIDs.remove(session.id)
+        save()
+    }
+
+    /// Remove restored IDs whose terminal is no longer open (matched by CWD)
+    func pruneRestoredSessions(activeDirectories: Set<String>) {
+        let stale = restoredSessionIDs.filter { id in
+            guard let session = recentlyClosed.first(where: { $0.id == id }),
+                  let dir = session.workingDirectory else { return true }
+            return !activeDirectories.contains(dir)
+        }
+        guard !stale.isEmpty else { return }
+        for id in stale { restoredSessionIDs.remove(id) }
         save()
     }
 
@@ -280,6 +365,13 @@ final class SessionStore: ObservableObject {
 
 // MARK: - Model
 
+struct WindowFrame: Codable, Equatable {
+    let x: Int
+    let y: Int
+    let width: Int
+    let height: Int
+}
+
 struct SavedSession: Identifiable, Codable {
     let id: String
     let tabID: String
@@ -289,9 +381,12 @@ struct SavedSession: Identifiable, Codable {
     let app: String
     let wasClaudeSession: Bool
     let claudeSessionID: String?
+    let windowFrame: WindowFrame?
+    let sessionTag: String?
+    let content: String?
     let closedAt: Date
 
-    init(tabID: String, title: String, summary: String, workingDirectory: String?, app: String, wasClaudeSession: Bool = false, claudeSessionID: String? = nil, closedAt: Date) {
+    init(tabID: String, title: String, summary: String, workingDirectory: String?, app: String, wasClaudeSession: Bool = false, claudeSessionID: String? = nil, windowFrame: WindowFrame? = nil, sessionTag: String? = nil, content: String? = nil, closedAt: Date) {
         self.id = UUID().uuidString
         self.tabID = tabID
         self.title = title
@@ -300,6 +395,14 @@ struct SavedSession: Identifiable, Codable {
         self.app = app
         self.wasClaudeSession = wasClaudeSession
         self.claudeSessionID = claudeSessionID
+        self.windowFrame = windowFrame
+        self.sessionTag = sessionTag
+        self.content = content
         self.closedAt = closedAt
+    }
+
+    /// Effective tag — falls back to "claude"/"term" for sessions saved before tags existed
+    var effectiveTag: String {
+        sessionTag ?? (wasClaudeSession ? "claude" : "term")
     }
 }

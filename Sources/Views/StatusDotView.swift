@@ -3,9 +3,13 @@ import SwiftUI
 struct StatusDotView: View {
     let status: TerminalStatus
     var claudeState: ClaudeState? = nil
+    var sessionTag: String = "term"
 
     var body: some View {
-        if let claudeState, claudeState == .working {
+        if sessionTag == "openclaw" && status == .running {
+            BrailleSpinnerView()
+                .frame(width: 14, height: 14)
+        } else if let claudeState, claudeState == .working {
             ClaudeSparkleView()
                 .frame(width: 14, height: 14)
         } else {
@@ -75,6 +79,25 @@ private struct StaticDotView: View {
     }
 }
 
+// MARK: - OpenClaw Braille Spinner
+
+struct BrailleSpinnerView: View {
+    private static let frames: [String] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    @State private var currentIndex = 0
+
+    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Text(Self.frames[currentIndex])
+            .font(.system(size: 12))
+            .foregroundStyle(.green.opacity(0.8))
+            .onReceive(timer) { _ in
+                currentIndex = (currentIndex + 1) % Self.frames.count
+            }
+    }
+}
+
 // MARK: - Claude Sparkle Animation
 
 /// Replicates the Claude Code CLI sparkle: · ✢ ✳ ✶ ✻ ✽ with ping-pong
@@ -84,7 +107,7 @@ struct ClaudeSparkleView: View {
 
     @State private var currentIndex = 0
 
-    private let timer = Timer.publish(every: 0.12, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 0.22, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Text(Self.cycle[currentIndex])
