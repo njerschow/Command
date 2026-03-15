@@ -10,8 +10,9 @@ final class WindowFocuser {
         switch group.app {
         case .terminal:
             focusTerminalApp(windowID: group.windowID, tabIndex: tab.tabIndex)
+        case .iterm:
+            focusITerm(windowID: group.windowID, tabIndex: tab.tabIndex)
         default:
-            // Generic: just activate the app
             focusGenericApp(bundleIdentifier: group.app.bundleIdentifier)
         }
     }
@@ -41,6 +42,29 @@ final class WindowFocuser {
         if let error = error {
             print("[WindowFocuser] Error: \(error)")
         }
+    }
+
+    // MARK: - iTerm2
+
+    private func focusITerm(windowID: Int, tabIndex: Int) {
+        let script = """
+        tell application "iTerm2"
+            activate
+            repeat with w in windows
+                if id of w is \(windowID) then
+                    select w
+                    set current tab of w to item \(tabIndex + 1) of tabs of w
+                    return true
+                end if
+            end repeat
+            return false
+        end tell
+        """
+
+        let appleScript = NSAppleScript(source: script)
+        var error: NSDictionary?
+        appleScript?.executeAndReturnError(&error)
+        if let error { print("[WindowFocuser] iTerm2 error: \(error)") }
     }
 
     // MARK: - Generic

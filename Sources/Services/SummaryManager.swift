@@ -66,7 +66,8 @@ final class SummaryManager: ObservableObject {
                     // Read content for every tab
                     guard let content = self.contentReader.readHistory(
                         windowID: group.windowID,
-                        tabIndex: tab.tabIndex
+                        tabIndex: tab.tabIndex,
+                        app: group.app
                     ) else {
                         // Can't read content — use title as fallback
                         if ctx.currentSummary.isEmpty {

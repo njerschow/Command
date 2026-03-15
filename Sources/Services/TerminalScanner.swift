@@ -4,6 +4,7 @@ import Combine
 /// Coordinates scanning across all terminal adapters
 final class TerminalScanner {
     private let terminalAdapter = TerminalAppAdapter()
+    private let itermAdapter = ITermAdapter()
     private var timer: Timer?
 
     /// Scan all terminal apps and return grouped results
@@ -13,7 +14,10 @@ final class TerminalScanner {
         // Terminal.app
         groups.append(contentsOf: terminalAdapter.scan())
 
-        // TODO: iTerm2, Kitty, Ghostty, Warp adapters
+        // iTerm2
+        groups.append(contentsOf: itermAdapter.scan())
+
+        // TODO: Kitty, Ghostty, Warp adapters
 
         return groups
     }

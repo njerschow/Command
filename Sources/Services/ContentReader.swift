@@ -5,13 +5,30 @@ import AppKit
 final class ContentReader {
 
     /// Read the last N lines of terminal history
-    func readHistory(windowID: Int, tabIndex: Int, lineCount: Int = 100) -> String? {
+    func readHistory(windowID: Int, tabIndex: Int, app: TerminalApp = .terminal, lineCount: Int = 100) -> String? {
         let asTabIndex = tabIndex + 1  // AppleScript is 1-based
-        let script = """
-        tell application "Terminal"
-            return history of tab \(asTabIndex) of window id \(windowID)
-        end tell
-        """
+
+        let script: String
+        switch app {
+        case .iterm:
+            script = """
+            tell application "iTerm2"
+                repeat with w in windows
+                    if id of w is \(windowID) then
+                        set s to current session of item \(asTabIndex) of tabs of w
+                        return contents of s
+                    end if
+                end repeat
+            end tell
+            """
+        default:
+            script = """
+            tell application "Terminal"
+                return history of tab \(asTabIndex) of window id \(windowID)
+            end tell
+            """
+        }
+
         guard let history = runAppleScript(script) else { return nil }
         let lines = history.components(separatedBy: "\n")
         return Array(lines.suffix(lineCount)).joined(separator: "\n")
