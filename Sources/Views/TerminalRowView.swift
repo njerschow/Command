@@ -48,11 +48,8 @@ struct TerminalRowView: View {
 
                 Spacer(minLength: 4)
 
-                // Hover actions
+                // Info button — only on hover
                 if isHovered {
-                    if onSaveAndClose != nil {
-                        saveCloseButton
-                    }
                     infoButton
                 }
 
@@ -79,22 +76,7 @@ struct TerminalRowView: View {
         .animation(.spring(duration: 0.2, bounce: 0.1), value: isSelected)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .popover(isPresented: $showInfo, arrowEdge: .trailing) {
-            InfoPopoverView(tab: tab, context: context, lastActive: lastActive)
-        }
-    }
-
-    private var saveCloseButton: some View {
-        Button(action: { onSaveAndClose?() }) {
-            Image(systemName: "xmark.circle")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-        }
-        .buttonStyle(.plain)
-        .transition(.opacity)
-        .help("Save & Close")
-        .onHover { inside in
-            if inside { NSCursor.pointingHand.push() }
-            else { NSCursor.pop() }
+            InfoPopoverView(tab: tab, context: context, lastActive: lastActive, onSaveAndClose: onSaveAndClose)
         }
     }
 
@@ -153,6 +135,7 @@ struct InfoPopoverView: View {
     let tab: TerminalTab
     let context: TerminalContext?
     let lastActive: Date?
+    var onSaveAndClose: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -199,6 +182,27 @@ struct InfoPopoverView: View {
                     }
                     .font(.system(size: 10))
                 }
+            }
+
+            // Save & Close
+            if let onSaveAndClose {
+                Divider()
+                Button(action: onSaveAndClose) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "archivebox")
+                            .font(.system(size: 10))
+                        Text("Save & Close")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(10)
