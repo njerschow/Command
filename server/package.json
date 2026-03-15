@@ -1,0 +1,13 @@
+{
+  "name": "command-feedback-server",
+  "version": "1.0.0",
+  "description": "Feedback server for Command macOS app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
