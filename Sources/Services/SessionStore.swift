@@ -10,6 +10,8 @@ final class SessionStore: ObservableObject {
     private var cachedClaudeSessionIDs: [String: String] = [:]
     /// Tab IDs explicitly saved via Save & Close (to prevent duplicate tracking)
     private var explicitlySaved: Set<String> = []
+    /// Session IDs that have been restored (shown as active/green)
+    private(set) var restoredSessionIDs: Set<String> = []
 
     private let maxSaved = 20
     private let storageURL: URL
@@ -197,17 +199,19 @@ final class SessionStore: ObservableObject {
         appleScript?.executeAndReturnError(&error)
         if let error { print("[SessionStore] restore error: \(error)") }
 
-        // Keep session in the list — it will show green when the new terminal is detected
-        // User can dismiss it manually via the X button
+        // Mark as restored — shows green dot immediately
+        restoredSessionIDs.insert(session.id)
     }
 
     func dismiss(_ session: SavedSession) {
         recentlyClosed.removeAll { $0.id == session.id }
+        restoredSessionIDs.remove(session.id)
         save()
     }
 
     func clearAll() {
         recentlyClosed.removeAll()
+        restoredSessionIDs.removeAll()
         save()
     }
 

@@ -265,6 +265,10 @@ struct TerminalListView: View {
 
     /// Check if a saved session has been restored (matching cwd in active tabs)
     private func isSessionActive(_ session: SavedSession) -> Bool {
+        // Immediately active if user clicked Restore
+        if sessionStore.restoredSessionIDs.contains(session.id) {
+            return true
+        }
         guard let dir = session.workingDirectory else { return false }
         // Check cached directories
         for group in appState.terminalGroups {
@@ -272,14 +276,6 @@ struct TerminalListView: View {
                 if sessionStore.cachedDirectory(for: tab.id) == dir {
                     return true
                 }
-            }
-        }
-        // Also check if any window title contains the directory name
-        let dirName = (dir as NSString).lastPathComponent
-        for group in appState.terminalGroups {
-            if group.windowTitle.contains(dirName) { return true }
-            for tab in group.tabs {
-                if tab.title.contains(dirName) { return true }
             }
         }
         return false
