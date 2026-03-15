@@ -47,6 +47,18 @@ struct TerminalRowView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                if tab.isClaudeSession {
+                    Text("claude")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.quaternary)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(Color.primary.opacity(0.04))
+                        )
+                }
+
                 Spacer(minLength: 4)
 
                 // Info button — only on hover

@@ -11,7 +11,7 @@ final class SessionStore: ObservableObject {
     /// Tab IDs explicitly saved via Save & Close (to prevent duplicate tracking)
     private var explicitlySaved: Set<String> = []
     /// Session IDs that have been restored (shown as active/green)
-    private(set) var restoredSessionIDs: Set<String> = []
+    @Published private(set) var restoredSessionIDs: Set<String> = []
 
     private let maxSaved = 20
     private let storageURL: URL
