@@ -3,15 +3,20 @@ import SwiftUI
 struct TerminalListView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedIndex: Int? = nil
+    @State private var showClaudeSetup = false
 
     var body: some View {
         VStack(spacing: 0) {
-            terminalList
+            if showClaudeSetup {
+                ClaudeSetupView(isPresented: $showClaudeSetup)
+            } else {
+                terminalList
 
-            Divider()
-                .padding(.horizontal, 8)
+                Divider()
+                    .padding(.horizontal, 8)
 
-            footer
+                footer
+            }
         }
         .frame(width: 320)
         .fixedSize(horizontal: true, vertical: true)
@@ -160,10 +165,22 @@ struct TerminalListView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack(alignment: .bottom) {
+        HStack(alignment: .bottom, spacing: 8) {
             FeedbackView()
 
             Spacer()
+
+            Button(action: { withAnimation(.spring(duration: 0.3)) { showClaudeSetup = true } }) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Claude Code integration")
+            .onHover { inside in
+                if inside { NSCursor.pointingHand.push() }
+                else { NSCursor.pop() }
+            }
 
             Text("⌘.")
                 .font(.system(size: 11, weight: .regular, design: .rounded))
