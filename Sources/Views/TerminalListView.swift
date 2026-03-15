@@ -214,7 +214,10 @@ struct TerminalListView: View {
 
             if savedExpanded {
                 ForEach(sessionStore.recentlyClosed) { session in
-                    ClosedSessionRow(session: session) {
+                    ClosedSessionRow(
+                        session: session,
+                        isActive: isSessionActive(session)
+                    ) {
                         sessionStore.restore(session)
                     } onDismiss: {
                         withAnimation { sessionStore.dismiss(session) }
@@ -255,6 +258,21 @@ struct TerminalListView: View {
         .padding(.vertical, 8)
     }
 
+    // MARK: - Helpers
+
+    /// Check if a saved session has been restored (matching cwd in active tabs)
+    private func isSessionActive(_ session: SavedSession) -> Bool {
+        guard let dir = session.workingDirectory else { return false }
+        for group in appState.terminalGroups {
+            for tab in group.tabs {
+                if sessionStore.cachedDirectory(for: tab.id) == dir {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     // MARK: - Actions
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
@@ -266,6 +284,7 @@ struct TerminalListView: View {
 
 struct ClosedSessionRow: View {
     let session: SavedSession
+    let isActive: Bool
     let onRestore: () -> Void
     let onDismiss: () -> Void
 
@@ -273,15 +292,31 @@ struct ClosedSessionRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "terminal")
-                .font(.system(size: 9))
-                .foregroundStyle(.quaternary)
+            // Red dot for closed, green for active (already restored)
+            Circle()
+                .fill(isActive ? Color.green.opacity(0.6) : Color.red.opacity(0.5))
+                .frame(width: 7, height: 7)
+                .frame(width: 12, height: 12)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(session.summary)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(session.summary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(isActive ? .tertiary : .secondary)
+                        .lineLimit(1)
+
+                    if session.wasClaudeSession {
+                        Text("claude")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.quaternary)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(Color.primary.opacity(0.04))
+                            )
+                    }
+                }
 
                 if let dir = session.workingDirectory {
                     Text(dir.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
@@ -302,13 +337,15 @@ struct ClosedSessionRow: View {
                 .buttonStyle(.plain)
                 .transition(.opacity)
 
-                Button(action: onRestore) {
-                    Image(systemName: "arrow.uturn.left")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                if !isActive {
+                    Button(action: onRestore) {
+                        Image(systemName: "arrow.uturn.left")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .transition(.opacity)
             } else {
                 Text(relativeTime(session.closedAt))
                     .font(.system(size: 11, design: .rounded))
@@ -323,7 +360,9 @@ struct ClosedSessionRow: View {
                 .fill(isHovered ? Color.primary.opacity(0.04) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture { onRestore() }
+        .onTapGesture {
+            if !isActive { onRestore() }
+        }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
         }
