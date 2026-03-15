@@ -281,6 +281,10 @@ struct TerminalListView: View {
 
             Spacer()
 
+            Text("v0.3")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.quaternary)
+
             Button(action: {
                 if optionHeld {
                     // Relaunch
