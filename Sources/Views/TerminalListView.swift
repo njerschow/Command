@@ -21,7 +21,7 @@ struct TerminalListView: View {
         .frame(width: 320)
         .fixedSize(horizontal: true, vertical: true)
         .background(keyboardHandler)
-        .sheet(isPresented: $showHistory) {
+        .popover(isPresented: $showHistory, arrowEdge: .bottom) {
             SessionHistoryView(
                 sessions: sessionStore.recentlyClosed,
                 onRestore: { session in
@@ -220,13 +220,6 @@ struct TerminalListView: View {
                     Spacer()
 
                     if savedExpanded {
-                        Button("History") {
-                            showHistory = true
-                        }
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .buttonStyle(.plain)
-
                         Button("Clear") {
                             withAnimation { sessionStore.clearAll() }
                         }
@@ -280,6 +273,18 @@ struct TerminalListView: View {
             FeedbackView()
 
             Spacer()
+
+            Button(action: { showHistory.toggle() }) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside { NSCursor.pointingHand.push() }
+                else { NSCursor.pop() }
+            }
+            .help("Session History")
 
             Text("v0.3")
                 .font(.system(size: 10, design: .monospaced))
