@@ -63,23 +63,7 @@ final class SummaryManager: ObservableObject {
                     var ctx = updated[tab.id] ?? TerminalContext()
                     let isFirstCheck = ctx.lastChecked == .distantPast
 
-                    // For idle tabs that already have a summary, just keep it.
-                    // The gray dot communicates idle — the summary should still
-                    // describe what's in that terminal.
-                    if tab.status == .idle && !isFirstCheck && !ctx.currentSummary.isEmpty {
-                        ctx.lastChecked = Date()
-                        updated[tab.id] = ctx
-                        continue
-                    }
-
-                    // Adaptive interval — skip if unchanged many times (not on first check)
-                    if !isFirstCheck && ctx.unchangedCount >= 5 && ctx.unchangedCount % 3 != 0 {
-                        ctx.unchangedCount += 1
-                        updated[tab.id] = ctx
-                        continue
-                    }
-
-                    // Read content — even for idle tabs on first check
+                    // Read content for every tab
                     guard let content = self.contentReader.readHistory(
                         windowID: group.windowID,
                         tabIndex: tab.tabIndex
@@ -98,14 +82,14 @@ final class SummaryManager: ObservableObject {
                     let fp = ContentNormalizer.fingerprint(last10)
                     ctx.lastChecked = Date()
 
-                    // Unchanged and already have a summary? Skip.
+                    // ONLY skip if content is truly unchanged AND we already have a summary
                     if fp == ctx.lastFingerprint && !ctx.currentSummary.isEmpty {
                         ctx.unchangedCount += 1
                         updated[tab.id] = ctx
                         continue
                     }
 
-                    // Content changed (or first check)
+                    // Content changed (or first check) — always go to AI
                     ctx.unchangedCount = 0
                     ctx.lastFingerprint = fp
                     if !isFirstCheck {
@@ -113,18 +97,7 @@ final class SummaryManager: ObservableObject {
                     }
                     ctx.statusOverride = self.detectInputWaiting(content: content)
 
-                    // Try local heuristic — only for cases where we can be SPECIFIC
-                    if let local = self.localHeuristic(tab: tab, content: content) {
-                        let prev = ctx.currentSummary
-                        ctx.currentSummary = local
-                        ctx.summaryMethod = .localHeuristic
-                        ctx.lastSummarized = Date()
-                        if prev != local && !prev.isEmpty { ctx.pushHistory(prev) }
-                        updated[tab.id] = ctx
-                        continue
-                    }
-
-                    // Queue for AI batch — this is the default path
+                    // Queue for AI — always use Claude for summaries
                     aiBatch.append((
                         tab.id, group.windowID, tab.tabIndex,
                         ContentNormalizer.normalize(content),
@@ -160,21 +133,6 @@ final class SummaryManager: ObservableObject {
                 self?.isRefreshing = false
             }
         }
-    }
-
-    // MARK: - Local Heuristics (only for cases where we can be SPECIFIC)
-
-    private func localHeuristic(tab: TerminalTab, content: String) -> String? {
-        let title = tab.title.lowercased()
-
-        // Vim/Neovim — specific enough to handle locally
-        if title.contains("vim") || title.contains("nvim") {
-            return "Editing in vim"
-        }
-
-        // Everything else goes to AI — it gives much better summaries than
-        // generic labels like "Claude Code session" or "Docker running"
-        return nil
     }
 
     // MARK: - Input Detection
