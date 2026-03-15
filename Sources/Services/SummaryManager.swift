@@ -179,12 +179,16 @@ final class SummaryManager: ObservableObject {
         batch: [(id: String, wid: Int, tidx: Int, content: String, narrative: String, title: String)]
     ) -> [(String, String)] {
         var prompt = """
-        For each terminal below, give a 1-5 word summary of what the user is doing or was doing.
-        Focus on the HIGH-LEVEL task or project, not the specific command.
-        If the terminal shows a Claude Code session, describe what it's working ON, not that it's Claude.
-        If the terminal is idle, describe what was last happening there.
-        If history is provided, use it to understand the broader context.
-        Reply with ONLY numbered summaries, one per line. No explanations.
+        IMPORTANT: For each terminal, extract the ONE unique identifying detail — the specific project name, \
+        file, service, repo, or task that makes this session distinct. Use 1-5 words. \
+        The summary should trigger instant recognition ("oh, that's my X terminal").
+
+        Rules:
+        - Pick the most SPECIFIC detail: "Command menubar app" not "Swift project", "nginx config" not "editing files"
+        - If it's a Claude Code session, name what it's building/fixing, not that it's Claude
+        - If idle, describe what was last happening — the idle state is shown separately
+        - If history is provided, use it to understand the broader arc
+        - Reply with ONLY numbered summaries, one per line. No explanations.
 
         """
 
@@ -193,9 +197,14 @@ final class SummaryManager: ObservableObject {
             if !item.narrative.isEmpty {
                 prompt += " [History: \(item.narrative)]"
             }
-            // Send last 800 chars for better context
-            prompt += "\n\(String(item.content.suffix(800)))\n"
+            // Send last 100 lines for context
+            let contentLines = item.content.components(separatedBy: "\n")
+            let last100 = contentLines.suffix(100).joined(separator: "\n")
+            prompt += "\n\(last100)\n"
         }
+
+        // Reinforce at the end
+        prompt += "\nREMEMBER: Extract the unique identifying keyword/detail for each terminal. Be specific, not generic."
 
         guard let response = callClaude(prompt: prompt) else {
             // Fallback: use window titles instead of generic "Terminal active"
