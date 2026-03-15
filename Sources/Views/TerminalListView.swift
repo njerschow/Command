@@ -79,7 +79,7 @@ struct TerminalListView: View {
                     }
                 }
                 .padding(.vertical, 6)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 2)
             }
             .frame(maxHeight: 420)
         }

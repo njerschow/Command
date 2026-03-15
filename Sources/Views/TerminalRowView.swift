@@ -53,7 +53,8 @@ struct TerminalRowView: View {
 
                 trailingView
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 6)
+            .padding(.trailing, 10)
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -63,7 +64,7 @@ struct TerminalRowView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 2)
         .sensoryFeedback(.selection, trigger: isSelected)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) {
