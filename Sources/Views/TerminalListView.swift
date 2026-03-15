@@ -160,24 +160,8 @@ struct TerminalListView: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
-            Button(action: { /* TODO: feedback */ }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "bubble.left")
-                        .font(.system(size: 10))
-                    Text("Suggest")
-                        .font(.system(size: 11))
-                }
-                .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-            .onHover { inside in
-                if inside {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+        HStack(alignment: .bottom) {
+            FeedbackView()
 
             Spacer()
 
