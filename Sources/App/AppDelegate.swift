@@ -62,16 +62,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let previous = self.appState.terminalGroups
 
-            // Cache working directories every 30s (lsof is expensive)
-            if Date().timeIntervalSince(self.lastDirCacheTime) > 30 {
-                self.lastDirCacheTime = Date()
+            // Find new tabs that need immediate directory caching
+            let previousIDs = Set(previous.flatMap { $0.tabs }.map { $0.id })
+            let newTabs = groups.flatMap { $0.tabs }.filter { !previousIDs.contains($0.id) }
+            let needsFullCache = Date().timeIntervalSince(self.lastDirCacheTime) > 30
+
+            // Cache working directories: immediately for new tabs, every 30s for all
+            if needsFullCache || !newTabs.isEmpty {
+                if needsFullCache { self.lastDirCacheTime = Date() }
+                let tabsToCache = needsFullCache ? groups.flatMap({ $0.tabs }) : newTabs
                 DispatchQueue.global(qos: .utility).async {
-                    for group in groups {
-                        for tab in group.tabs {
-                            if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
-                                DispatchQueue.main.async {
-                                    self.sessionStore.cacheDirectory(dir, for: tab.id)
-                                }
+                    for tab in tabsToCache {
+                        if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
+                            DispatchQueue.main.async {
+                                self.sessionStore.cacheDirectory(dir, for: tab.id)
                             }
                         }
                     }

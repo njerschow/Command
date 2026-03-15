@@ -47,7 +47,7 @@ struct TerminalRowView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if tab.isClaudeSession {
+                if tab.isClaudeSession || claudeState != nil {
                     Text("claude")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundStyle(.quaternary)

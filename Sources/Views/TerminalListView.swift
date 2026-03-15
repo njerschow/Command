@@ -7,6 +7,7 @@ struct TerminalListView: View {
     @EnvironmentObject var hookServer: ClaudeHookServer
     @State private var selectedIndex: Int? = nil
     @State private var savedExpanded = true
+    @State private var showHistory = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +21,22 @@ struct TerminalListView: View {
         .frame(width: 320)
         .fixedSize(horizontal: true, vertical: true)
         .background(keyboardHandler)
+        .sheet(isPresented: $showHistory) {
+            SessionHistoryView(
+                sessions: sessionStore.recentlyClosed,
+                onRestore: { session in
+                    sessionStore.restore(session)
+                    showHistory = false
+                },
+                onDismiss: { session in
+                    withAnimation { sessionStore.dismiss(session) }
+                },
+                onClearAll: {
+                    sessionStore.clearAll()
+                    showHistory = false
+                }
+            )
+        }
     }
 
     // MARK: - Keyboard Handler
@@ -75,7 +92,7 @@ struct TerminalListView: View {
         if appState.terminalGroups.isEmpty && sessionStore.recentlyClosed.isEmpty {
             emptyState
         } else {
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 2) {
                     ForEach(appState.sortedGroups) { group in
                         terminalGroupView(group)
@@ -203,6 +220,13 @@ struct TerminalListView: View {
                     Spacer()
 
                     if savedExpanded {
+                        Button("History") {
+                            showHistory = true
+                        }
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .buttonStyle(.plain)
+
                         Button("Clear") {
                             withAnimation { sessionStore.clearAll() }
                         }
@@ -249,18 +273,47 @@ struct TerminalListView: View {
 
     // MARK: - Footer
 
+    @State private var optionHeld = false
+
     private var footer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             FeedbackView()
 
             Spacer()
 
-            Text("⌘.")
-                .font(.system(size: 11, weight: .regular, design: .rounded))
-                .foregroundStyle(.quaternary)
+            Button(action: {
+                if optionHeld {
+                    // Relaunch
+                    let url = Bundle.main.bundleURL
+                    let task = Process()
+                    task.launchPath = "/usr/bin/open"
+                    task.arguments = ["-n", url.path]
+                    try? task.run()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        NSApp.terminate(nil)
+                    }
+                } else {
+                    NSApp.terminate(nil)
+                }
+            }) {
+                Text(optionHeld ? "Relaunch" : "Quit")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                if inside { NSCursor.pointingHand.push() }
+                else { NSCursor.pop() }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(optionKeyMonitor)
+    }
+
+    private var optionKeyMonitor: some View {
+        OptionKeyMonitorView(isPressed: $optionHeld)
+            .frame(width: 0, height: 0)
     }
 
     // MARK: - Helpers
@@ -284,9 +337,9 @@ struct TerminalListView: View {
     }
 
     /// Look up Claude hook state for a tab by matching its cached cwd
+    /// Works even without process detection (e.g. iTerm2) by checking hook server directly
     private func claudeState(for tab: TerminalTab) -> ClaudeState? {
-        guard tab.isClaudeSession,
-              let cwd = sessionStore.cachedDirectory(for: tab.id),
+        guard let cwd = sessionStore.cachedDirectory(for: tab.id),
               let session = hookServer.session(forCwd: cwd) else { return nil }
         return session.state
     }
@@ -431,5 +484,163 @@ struct KeyboardHandlerView: NSViewRepresentable {
         override func keyDown(with event: NSEvent) {
             onKeyDown?(event)
         }
+    }
+}
+
+// MARK: - Option Key Monitor
+
+struct OptionKeyMonitorView: NSViewRepresentable {
+    @Binding var isPressed: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.start(binding: $isPressed)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    class Coordinator {
+        private var monitor: Any?
+
+        func start(binding: Binding<Bool>) {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                binding.wrappedValue = event.modifierFlags.contains(.option)
+                return event
+            }
+        }
+
+        deinit {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+        }
+    }
+}
+
+// MARK: - Session History Window
+
+struct SessionHistoryView: View {
+    let sessions: [SavedSession]
+    let onRestore: (SavedSession) -> Void
+    let onDismiss: (SavedSession) -> Void
+    let onClearAll: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Session History")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                if !sessions.isEmpty {
+                    Button("Clear All") { onClearAll() }
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if sessions.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(.tertiary)
+                    Text("No session history")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 1) {
+                        ForEach(sessions) { session in
+                            historyRow(session)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+        .frame(width: 420, height: 360)
+    }
+
+    private func historyRow(_ session: SavedSession) -> some View {
+        HStack(spacing: 10) {
+            // Status
+            Circle()
+                .fill(Color.secondary.opacity(0.4))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(session.summary)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if session.wasClaudeSession {
+                        Text("claude")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                    .fill(Color.primary.opacity(0.06))
+                            )
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    if let dir = session.workingDirectory {
+                        Text(dir.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+
+                    Text(formatDate(session.closedAt))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.quaternary)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 6) {
+                Button(action: { onRestore(session) }) {
+                    Image(systemName: "arrow.uturn.left")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { onDismiss(session) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.quaternary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        let seconds = -date.timeIntervalSinceNow
+        if seconds < 86400 {
+            f.dateFormat = "h:mm a"
+        } else {
+            f.dateFormat = "MMM d, h:mm a"
+        }
+        return f.string(from: date)
     }
 }
