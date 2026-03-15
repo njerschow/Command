@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Command — Terminal Manager for macOS</title>
+    <style>
+        :root {
+            --bg: #fafafa;
+            --fg: #111;
+            --muted: #666;
+            --subtle: #e5e5e5;
+            --accent: #0066ff;
+            --accent-soft: #0066ff15;
+            --radius: 12px;
+            --card-bg: #fff;
+            --code-bg: #f5f5f5;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0a0a0a;
+                --fg: #eee;
+                --muted: #999;
+                --subtle: #222;
+                --accent: #4d9fff;
+                --accent-soft: #4d9fff15;
+                --card-bg: #141414;
+                --code-bg: #1a1a1a;
+            }
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 80px 0 48px;
+        }
+
+        .hero-icon {
+            width: 72px;
+            height: 72px;
+            background: var(--accent-soft);
+            border-radius: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+            font-size: 32px;
+        }
+
+        h1 {
+            font-size: 40px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+            margin-bottom: 12px;
+        }
+
+        h1 span {
+            color: var(--accent);
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: var(--muted);
+            max-width: 480px;
+            margin: 0 auto 32px;
+        }
+
+        .cta-row {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--subtle);
+            color: var(--fg);
+        }
+
+        .btn-secondary:hover {
+            opacity: 0.8;
+        }
+
+        .btn svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Shortcut badge */
+        .shortcut {
+            display: inline-block;
+            margin-top: 16px;
+            padding: 4px 12px;
+            background: var(--code-bg);
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: var(--muted);
+            border: 1px solid var(--subtle);
+        }
+
+        /* Features */
+        .features {
+            padding: 48px 0;
+        }
+
+        .features h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 32px;
+            text-align: center;
+            letter-spacing: -0.01em;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .feature-card {
+            background: var(--card-bg);
+            border: 1px solid var(--subtle);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+
+        .feature-card .icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        .feature-card h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .feature-card p {
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        /* How it works */
+        .how-it-works {
+            padding: 48px 0;
+        }
+
+        .how-it-works h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .step {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .step-num {
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .step-text h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .step-text p {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        /* Install */
+        .install {
+            padding: 48px 0;
+            text-align: center;
+        }
+
+        .install h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .install p {
+            color: var(--muted);
+            margin-bottom: 24px;
+        }
+
+        .install-code {
+            display: inline-block;
+            padding: 12px 20px;
+            background: var(--code-bg);
+            border: 1px solid var(--subtle);
+            border-radius: 8px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 14px;
+            color: var(--fg);
+            user-select: all;
+        }
+
+        /* Footer */
+        footer {
+            padding: 32px 0;
+            text-align: center;
+            font-size: 13px;
+            color: var(--muted);
+            border-top: 1px solid var(--subtle);
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .hero { padding: 48px 0 32px; }
+            h1 { font-size: 28px; }
+            .subtitle { font-size: 16px; }
+            .feature-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Hero -->
+        <section class="hero">
+            <div class="hero-icon">&#x2318;</div>
+            <h1>All your terminals.<br><span>One glance.</span></h1>
+            <p class="subtitle">
+                Command is a tiny macOS menubar app that shows every open terminal window
+                with a smart 5-word summary of what's happening inside.
+            </p>
+            <div class="cta-row">
+                <a href="#install" class="btn btn-primary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download
+                </a>
+                <a href="https://github.com" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                    Source
+                </a>
+            </div>
+            <div class="shortcut">&#x2318;+. to toggle</div>
+        </section>
+
+        <!-- Features -->
+        <section class="features">
+            <h2>Built for developers who live in the terminal</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="icon">&#x1F50D;</div>
+                    <h3>Smart summaries</h3>
+                    <p>AI-generated 5-word descriptions of what's running in each terminal. Powered by Claude Haiku.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">&#x26A1;</div>
+                    <h3>Instant switching</h3>
+                    <p>Click any row or press &#x2318;+1-9 to jump straight to the right window and tab.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">&#x1F7E2;</div>
+                    <h3>Action required</h3>
+                    <p>Green pulse when a terminal needs your attention — prompts, errors, Claude waiting.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">&#x1F50B;</div>
+                    <h3>Battery friendly</h3>
+                    <p>Adaptive polling. Idle terminals are skipped. AI calls are batched and cached.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">&#x1F3A8;</div>
+                    <h3>Native & beautiful</h3>
+                    <p>SwiftUI with translucent materials, spring animations, light/dark mode. Feels like macOS.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">&#x1F4CB;</div>
+                    <h3>Rolling context</h3>
+                    <p>Summaries remember what you were doing, not just what's on screen right now.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- How it works -->
+        <section class="how-it-works">
+            <h2>How it works</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div class="step-text">
+                        <h3>Scans every 2 seconds</h3>
+                        <p>Detects all Terminal.app windows and tabs via AppleScript. Reads process state and window titles.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <div class="step-text">
+                        <h3>Fingerprints every 5 minutes</h3>
+                        <p>Reads the last 100 lines, strips noise (spinners, progress bars, ANSI codes), and hashes for change detection.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-text">
+                        <h3>Summarizes intelligently</h3>
+                        <p>Local heuristics handle obvious cases (SSH, servers, builds). Only ambiguous terminals get sent to AI — one batched call for all of them.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Install -->
+        <section class="install" id="install">
+            <h2>Get started</h2>
+            <p>macOS 14+ required. Download the app or build from source.</p>
+            <div class="cta-row" style="margin-bottom: 16px;">
+                <a href="#" class="btn btn-primary">Download Command.app</a>
+            </div>
+            <p style="font-size: 13px; color: var(--muted);">Or build from source:</p>
+            <div class="install-code">git clone &amp;&amp; cd Command &amp;&amp; make app</div>
+        </section>
+
+        <!-- Footer -->
+        <footer>
+            <p>Built with SwiftUI. Open source. <a href="https://github.com">GitHub</a></p>
+        </footer>
+    </div>
+</body>
+</html>
