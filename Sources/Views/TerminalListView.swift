@@ -25,16 +25,19 @@ struct TerminalListView: View {
         .background(keyboardHandler)
         .popover(isPresented: $showHistory, arrowEdge: .bottom) {
             SessionHistoryView(
-                sessions: sessionStore.recentlyClosed,
+                sessions: sessionStore.closedHistory,
                 onRestore: { session in
                     restoreOrFocus(session)
                     showHistory = false
                 },
+                onSave: { session in
+                    withAnimation { sessionStore.promoteToSaved(session) }
+                },
                 onDismiss: { session in
-                    withAnimation { sessionStore.dismiss(session) }
+                    withAnimation { sessionStore.dismissHistory(session) }
                 },
                 onClearAll: {
-                    sessionStore.clearAll()
+                    sessionStore.clearHistory()
                     showHistory = false
                 }
             )
@@ -91,7 +94,7 @@ struct TerminalListView: View {
 
     @ViewBuilder
     private var terminalList: some View {
-        if appState.terminalGroups.isEmpty && sessionStore.recentlyClosed.isEmpty {
+        if appState.terminalGroups.isEmpty && sessionStore.savedSessions.isEmpty {
             emptyState
         } else {
             ScrollView(.vertical, showsIndicators: false) {
@@ -100,8 +103,8 @@ struct TerminalListView: View {
                         terminalGroupView(group)
                     }
 
-                    if !sessionStore.recentlyClosed.isEmpty {
-                        recentlyClosedSection
+                    if !sessionStore.savedSessions.isEmpty {
+                        savedSessionsSection
                     }
                 }
                 .padding(.vertical, 6)
@@ -137,6 +140,10 @@ struct TerminalListView: View {
             workingDirectory: cwd,
             claudeSessionID: cwd.flatMap { hookServer.sessionID(forCwd: $0) },
             onSelect: { focusTerminal(group: group, tab: tab) },
+            onSave: {
+                sessionStore.saveSession(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
+                                         contentReader: summaryManager.contentReader, hookServer: hookServer)
+            },
             onSaveAndClose: {
                 sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
@@ -182,6 +189,10 @@ struct TerminalListView: View {
                     workingDirectory: cwd,
                     claudeSessionID: cwd.flatMap { hookServer.sessionID(forCwd: $0) },
                     onSelect: { focusTerminal(group: group, tab: tab) },
+                    onSave: {
+                        sessionStore.saveSession(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
+                                         contentReader: summaryManager.contentReader, hookServer: hookServer)
+                    },
                     onSaveAndClose: {
                         sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
@@ -205,7 +216,7 @@ struct TerminalListView: View {
 
     // MARK: - Saved Sessions
 
-    private var recentlyClosedSection: some View {
+    private var savedSessionsSection: some View {
         VStack(alignment: .leading, spacing: 1) {
             // Collapsible header
             Button(action: {
@@ -221,7 +232,7 @@ struct TerminalListView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
 
-                    Text("\(sessionStore.recentlyClosed.count)")
+                    Text("\(sessionStore.savedSessions.count)")
                         .font(.system(size: 10))
                         .foregroundStyle(.quaternary)
 
@@ -229,7 +240,7 @@ struct TerminalListView: View {
 
                     if savedExpanded {
                         Button("Clear") {
-                            withAnimation { sessionStore.clearAll() }
+                            withAnimation { sessionStore.clearSaved() }
                         }
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
@@ -243,14 +254,14 @@ struct TerminalListView: View {
             .padding(.bottom, 4)
 
             if savedExpanded {
-                ForEach(sessionStore.recentlyClosed) { session in
+                ForEach(sessionStore.savedSessions) { session in
                     ClosedSessionRow(
                         session: session,
                         isActive: isSessionActive(session)
                     ) {
                         restoreOrFocus(session)
                     } onDismiss: {
-                        withAnimation { sessionStore.dismiss(session) }
+                        withAnimation { sessionStore.dismissSaved(session) }
                     }
                 }
             }
@@ -554,6 +565,7 @@ struct OptionKeyMonitorView: NSViewRepresentable {
 struct SessionHistoryView: View {
     let sessions: [SavedSession]
     let onRestore: (SavedSession) -> Void
+    let onSave: (SavedSession) -> Void
     let onDismiss: (SavedSession) -> Void
     let onClearAll: () -> Void
 
@@ -738,6 +750,14 @@ struct SessionHistoryView: View {
             Spacer(minLength: 4)
 
             HStack(spacing: 6) {
+                Button(action: { onSave(session) }) {
+                    Image(systemName: "bookmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Save to saved sessions")
+
                 Button(action: { onRestore(session) }) {
                     Image(systemName: "arrow.uturn.left")
                         .font(.system(size: 11))

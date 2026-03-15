@@ -108,7 +108,7 @@ final class SessionStoreTests: XCTestCase {
             workingDirectory: "/Users/n/projects/app",
             app: "Terminal", closedAt: Date()
         )
-        store.recentlyClosed = [session]
+        store.savedSessions = [session]
 
         // Simulate restoring it
         store.restore(session) // This will fail (no terminal) but still inserts ID

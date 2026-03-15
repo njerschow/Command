@@ -43,6 +43,11 @@ gh release create v1.1.0 build/Command.zip \
 
 ## Install
 Download `Command.zip`, unzip, move to `/Applications`, launch.
+
+If macOS says the app is damaged, run:
+\`\`\`
+xattr -cr /Applications/Command.app
+\`\`\`
 EOF
 )"
 ```

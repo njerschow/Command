@@ -12,6 +12,7 @@ struct TerminalRowView: View {
     var workingDirectory: String? = nil
     var claudeSessionID: String? = nil
     let onSelect: () -> Void
+    var onSave: (() -> Void)? = nil
     var onSaveAndClose: (() -> Void)? = nil
 
     @State private var isHovered = false
@@ -87,7 +88,7 @@ struct TerminalRowView: View {
         .popover(isPresented: $showInfo, arrowEdge: .trailing) {
             InfoPopoverView(tab: tab, context: context, lastActive: lastActive,
                             workingDirectory: workingDirectory, claudeSessionID: claudeSessionID,
-                            claudeState: claudeState, onSaveAndClose: onSaveAndClose)
+                            claudeState: claudeState, onSave: onSave, onSaveAndClose: onSaveAndClose)
         }
     }
 
@@ -159,6 +160,7 @@ struct InfoPopoverView: View {
     var workingDirectory: String? = nil
     var claudeSessionID: String? = nil
     var claudeState: ClaudeState? = nil
+    var onSave: (() -> Void)? = nil
     var onSaveAndClose: (() -> Void)? = nil
 
     var body: some View {
@@ -222,26 +224,49 @@ struct InfoPopoverView: View {
                 }
             }
 
-            // Save & Close — only show if we have the data needed for restore
+            // Save / Save & Close — only show if we have the data needed for restore
             let isSaveable = workingDirectory != nil && (claudeSessionID != nil || !tab.isClaudeSession)
-            if let onSaveAndClose, isSaveable {
+            if isSaveable {
                 Divider()
-                Button(action: onSaveAndClose) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 10))
-                        Text("Save & Close")
-                            .font(.system(size: 11, weight: .medium))
+                HStack(spacing: 6) {
+                    if let onSave {
+                        Button(action: onSave) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "bookmark")
+                                    .font(.system(size: 10))
+                                Text("Save")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.primary.opacity(0.05))
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
+
+                    if let onSaveAndClose {
+                        Button(action: onSaveAndClose) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "archivebox")
+                                    .font(.system(size: 10))
+                                Text("Save & Close")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.primary.opacity(0.05))
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(10)

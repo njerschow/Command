@@ -20,11 +20,13 @@ app: build
 	@cp .build/release/Command build/Command.app/Contents/MacOS/
 	@cp Info.plist build/Command.app/Contents/
 	@cp Resources/AppIcon.icns build/Command.app/Contents/Resources/ 2>/dev/null || true
+	@codesign --force --deep --sign - build/Command.app
 	@echo "Built build/Command.app"
 
 # Create distributable zip
 dist: app
-	@cd build && zip -r Command.zip Command.app
+	@xattr -cr build/Command.app
+	@cd build && ditto -c -k --keepParent Command.app Command.zip
 	@echo "Created build/Command.zip ($(du -h build/Command.zip | cut -f1))"
 
 # Build and launch .app

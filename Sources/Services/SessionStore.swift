@@ -2,7 +2,10 @@ import Foundation
 
 /// Persists terminal sessions so they can be recovered after close
 final class SessionStore: ObservableObject {
-    @Published var recentlyClosed: [SavedSession] = []
+    /// Explicitly saved sessions (via Save or Save & Close)
+    @Published var savedSessions: [SavedSession] = []
+    /// Auto-tracked closed terminal history
+    @Published var closedHistory: [SavedSession] = []
 
     /// Cached working directories for live tabs (updated every scan)
     private var cachedDirectories: [String: String] = [:]
@@ -16,16 +19,21 @@ final class SessionStore: ObservableObject {
     private var explicitlySaved: [String: Date] = [:]
     /// Session IDs that have been restored (shown as active/green)
     @Published private(set) var restoredSessionIDs: Set<String> = []
+    /// Tab IDs that have been bookmarked via Save (still open)
+    private var savedTabIDs: Set<String> = []
 
     private let maxSaved = 20
-    private let storageURL: URL
+    private let maxHistory = 50
+    private let savedURL: URL
+    private let historyURL: URL
     private let restoredURL: URL
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("Command", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        storageURL = dir.appendingPathComponent("sessions.json")
+        savedURL = dir.appendingPathComponent("saved_sessions.json")
+        historyURL = dir.appendingPathComponent("history.json")
         restoredURL = dir.appendingPathComponent("restored.json")
         load()
     }
@@ -90,7 +98,7 @@ final class SessionStore: ObservableObject {
         return WindowFrame(x: parts[0], y: parts[1], width: parts[2] - parts[0], height: parts[3] - parts[1])
     }
 
-    // MARK: - Track Closed Tabs
+    // MARK: - Track Closed Tabs (History only)
 
     func trackClosed(
         current: [TerminalGroup],
@@ -146,8 +154,12 @@ final class SessionStore: ObservableObject {
                 content: content,
                 closedAt: Date()
             )
-            recentlyClosed.insert(session, at: 0)
+            closedHistory.insert(session, at: 0)
             changed = true
+
+            // Remove from saved tab tracking
+            savedTabIDs.remove(tab.id)
+
             cachedDirectories.removeValue(forKey: tab.id)
             cachedClaudeSessionIDs.removeValue(forKey: tab.id)
             cachedWindowFrames.removeValue(forKey: tab.id)
@@ -155,11 +167,58 @@ final class SessionStore: ObservableObject {
         }
 
         if changed {
-            if recentlyClosed.count > maxSaved {
-                recentlyClosed = Array(recentlyClosed.prefix(maxSaved))
+            if closedHistory.count > maxHistory {
+                closedHistory = Array(closedHistory.prefix(maxHistory))
             }
             save()
         }
+    }
+
+    // MARK: - Save (bookmark without closing)
+
+    func saveSession(group: TerminalGroup, tab: TerminalTab, summary: String?,
+                     contentReader: ContentReader? = nil, hookServer: ClaudeHookServer? = nil) {
+        // Don't save duplicates
+        guard !savedTabIDs.contains(tab.id) else { return }
+
+        // Resolve directory
+        var dir = cachedDirectories[tab.id]
+        if dir == nil, let contentReader {
+            dir = contentReader.workingDirectory(tty: tab.tty)
+            if let dir { cachedDirectories[tab.id] = dir }
+        }
+        guard let dir else { return }
+
+        // Resolve Claude session ID
+        var claudeSID = cachedClaudeSessionIDs[tab.id]
+        if claudeSID == nil, tab.isClaudeSession, let hookServer {
+            claudeSID = hookServer.sessionID(forCwd: dir)
+            if let claudeSID { cachedClaudeSessionIDs[tab.id] = claudeSID }
+        }
+        if tab.isClaudeSession && claudeSID == nil { return }
+
+        let frame = cachedWindowFrames[tab.id]
+        let content = cachedContent[tab.id]
+
+        let session = SavedSession(
+            tabID: tab.id,
+            title: tab.title,
+            summary: summary ?? tab.title,
+            workingDirectory: dir,
+            app: group.app.rawValue,
+            wasClaudeSession: tab.isClaudeSession,
+            claudeSessionID: claudeSID,
+            windowFrame: frame,
+            sessionTag: tab.sessionTag,
+            content: content,
+            closedAt: Date()
+        )
+        savedSessions.insert(session, at: 0)
+        savedTabIDs.insert(tab.id)
+        if savedSessions.count > maxSaved {
+            savedSessions = Array(savedSessions.prefix(maxSaved))
+        }
+        save()
     }
 
     // MARK: - Save & Close
@@ -197,6 +256,10 @@ final class SessionStore: ObservableObject {
         let content = contentReader?.readHistory(windowID: group.windowID, tabIndex: tab.tabIndex, app: group.app, lineCount: 500)
             ?? cachedContent[tab.id]
 
+        // Remove any existing "Save" bookmark for this tab
+        savedSessions.removeAll { $0.tabID == tab.id }
+        savedTabIDs.remove(tab.id)
+
         let session = SavedSession(
             tabID: tab.id,
             title: tab.title,
@@ -210,9 +273,9 @@ final class SessionStore: ObservableObject {
             content: content,
             closedAt: Date()
         )
-        recentlyClosed.insert(session, at: 0)
-        if recentlyClosed.count > maxSaved {
-            recentlyClosed = Array(recentlyClosed.prefix(maxSaved))
+        savedSessions.insert(session, at: 0)
+        if savedSessions.count > maxSaved {
+            savedSessions = Array(savedSessions.prefix(maxSaved))
         }
         explicitlySaved[tab.id] = Date()
         save()
@@ -301,16 +364,31 @@ final class SessionStore: ObservableObject {
         save()
     }
 
-    func dismiss(_ session: SavedSession) {
-        recentlyClosed.removeAll { $0.id == session.id }
+    func dismissSaved(_ session: SavedSession) {
+        savedSessions.removeAll { $0.id == session.id }
         restoredSessionIDs.remove(session.id)
+        save()
+    }
+
+    func dismissHistory(_ session: SavedSession) {
+        closedHistory.removeAll { $0.id == session.id }
+        save()
+    }
+
+    /// Move a history item into saved sessions
+    func promoteToSaved(_ session: SavedSession) {
+        closedHistory.removeAll { $0.id == session.id }
+        savedSessions.insert(session, at: 0)
+        if savedSessions.count > maxSaved {
+            savedSessions = Array(savedSessions.prefix(maxSaved))
+        }
         save()
     }
 
     /// Remove restored IDs whose terminal is no longer open (matched by CWD)
     func pruneRestoredSessions(activeDirectories: Set<String>) {
         let stale = restoredSessionIDs.filter { id in
-            guard let session = recentlyClosed.first(where: { $0.id == id }),
+            guard let session = savedSessions.first(where: { $0.id == id }),
                   let dir = session.workingDirectory else { return true }
             return !activeDirectories.contains(dir)
         }
@@ -319,9 +397,14 @@ final class SessionStore: ObservableObject {
         save()
     }
 
-    func clearAll() {
-        recentlyClosed.removeAll()
+    func clearSaved() {
+        savedSessions.removeAll()
         restoredSessionIDs.removeAll()
+        save()
+    }
+
+    func clearHistory() {
+        closedHistory.removeAll()
         save()
     }
 
@@ -329,10 +412,16 @@ final class SessionStore: ObservableObject {
 
     private func save() {
         do {
-            let data = try JSONEncoder().encode(recentlyClosed)
-            try data.write(to: storageURL, options: .atomic)
+            let data = try JSONEncoder().encode(savedSessions)
+            try data.write(to: savedURL, options: .atomic)
         } catch {
             print("[SessionStore] save error: \(error)")
+        }
+        do {
+            let data = try JSONEncoder().encode(closedHistory)
+            try data.write(to: historyURL, options: .atomic)
+        } catch {
+            print("[SessionStore] save history error: \(error)")
         }
         do {
             let data = try JSONEncoder().encode(Array(restoredSessionIDs))
@@ -343,14 +432,41 @@ final class SessionStore: ObservableObject {
     }
 
     private func load() {
-        if FileManager.default.fileExists(atPath: storageURL.path) {
+        // Load saved sessions
+        if FileManager.default.fileExists(atPath: savedURL.path) {
             do {
-                let data = try Data(contentsOf: storageURL)
-                recentlyClosed = try JSONDecoder().decode([SavedSession].self, from: data)
+                let data = try Data(contentsOf: savedURL)
+                savedSessions = try JSONDecoder().decode([SavedSession].self, from: data)
             } catch {
-                print("[SessionStore] load error: \(error)")
+                print("[SessionStore] load saved error: \(error)")
             }
         }
+        // Migrate old sessions.json → history
+        let legacyURL = savedURL.deletingLastPathComponent().appendingPathComponent("sessions.json")
+        if FileManager.default.fileExists(atPath: legacyURL.path) {
+            do {
+                let data = try Data(contentsOf: legacyURL)
+                let legacy = try JSONDecoder().decode([SavedSession].self, from: data)
+                closedHistory.append(contentsOf: legacy)
+                try? FileManager.default.removeItem(at: legacyURL)
+            } catch {
+                print("[SessionStore] migrate legacy error: \(error)")
+            }
+        }
+        // Load history
+        if FileManager.default.fileExists(atPath: historyURL.path) {
+            do {
+                let data = try Data(contentsOf: historyURL)
+                let loaded = try JSONDecoder().decode([SavedSession].self, from: data)
+                // Merge (avoid duplicates from migration)
+                let existingIDs = Set(closedHistory.map { $0.id })
+                closedHistory.append(contentsOf: loaded.filter { !existingIDs.contains($0.id) })
+                closedHistory.sort { $0.closedAt > $1.closedAt }
+            } catch {
+                print("[SessionStore] load history error: \(error)")
+            }
+        }
+        // Load restored IDs
         if FileManager.default.fileExists(atPath: restoredURL.path) {
             do {
                 let data = try Data(contentsOf: restoredURL)
@@ -360,6 +476,8 @@ final class SessionStore: ObservableObject {
                 print("[SessionStore] load restored error: \(error)")
             }
         }
+        // Rebuild savedTabIDs
+        savedTabIDs = Set(savedSessions.map { $0.tabID })
     }
 }
 
