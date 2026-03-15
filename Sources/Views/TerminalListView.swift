@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TerminalListView: View {
     @EnvironmentObject var appState: AppState
+    @State private var selectedIndex: Int? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +15,53 @@ struct TerminalListView: View {
         }
         .frame(width: 320)
         .fixedSize(horizontal: true, vertical: true)
+        .background(keyboardHandler)
+    }
+
+    // MARK: - Keyboard Handler
+
+    private var keyboardHandler: some View {
+        KeyboardHandlerView { event in
+            handleKeyEvent(event)
+        }
+        .frame(width: 0, height: 0)
+    }
+
+    private func handleKeyEvent(_ event: NSEvent) {
+        let totalTabs = appState.allTabs.count
+
+        // ⌘+1-9: quick switch
+        if event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers,
+           let digit = Int(chars), digit >= 1, digit <= 9 {
+            let index = digit - 1
+            if let (group, tab) = appState.tab(at: index) {
+                focusTerminal(group: group, tab: tab)
+            }
+            return
+        }
+
+        switch event.keyCode {
+        case 125: // Down arrow
+            if let current = selectedIndex {
+                selectedIndex = min(current + 1, totalTabs - 1)
+            } else {
+                selectedIndex = 0
+            }
+        case 126: // Up arrow
+            if let current = selectedIndex {
+                selectedIndex = max(current - 1, 0)
+            } else {
+                selectedIndex = totalTabs - 1
+            }
+        case 36: // Return/Enter
+            if let index = selectedIndex,
+               let (group, tab) = appState.tab(at: index) {
+                focusTerminal(group: group, tab: tab)
+            }
+        default:
+            break
+        }
     }
 
     // MARK: - Terminal List
@@ -41,17 +89,19 @@ struct TerminalListView: View {
     @ViewBuilder
     private func terminalGroupView(_ group: TerminalGroup) -> some View {
         if group.tabs.count == 1, let tab = group.tabs.first {
-            // Single tab: flat row with app name as subtitle
             singleTabRow(group: group, tab: tab)
         } else {
-            // Multi-tab: section header + rows
             multiTabSection(group: group)
         }
     }
 
     private func singleTabRow(group: TerminalGroup, tab: TerminalTab) -> some View {
         let globalIdx = appState.globalIndex(for: group)
-        return TerminalRowView(tab: tab, shortcutIndex: globalIdx) {
+        return TerminalRowView(
+            tab: tab,
+            shortcutIndex: globalIdx,
+            isSelected: selectedIndex == globalIdx
+        ) {
             focusTerminal(group: group, tab: tab)
         }
     }
@@ -81,7 +131,11 @@ struct TerminalListView: View {
             .padding(.bottom, 2)
 
             ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
-                TerminalRowView(tab: tab, shortcutIndex: startIndex + index) {
+                TerminalRowView(
+                    tab: tab,
+                    shortcutIndex: startIndex + index,
+                    isSelected: selectedIndex == startIndex + index
+                ) {
                     focusTerminal(group: group, tab: tab)
                 }
             }
@@ -139,5 +193,32 @@ struct TerminalListView: View {
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
         WindowFocuser.shared.focus(group: group, tab: tab)
+    }
+}
+
+// MARK: - Keyboard Handler NSView
+
+/// Bridges NSView key events into SwiftUI
+struct KeyboardHandlerView: NSViewRepresentable {
+    let onKeyDown: (NSEvent) -> Void
+
+    func makeNSView(context: Context) -> KeyCaptureView {
+        let view = KeyCaptureView()
+        view.onKeyDown = onKeyDown
+        return view
+    }
+
+    func updateNSView(_ nsView: KeyCaptureView, context: Context) {
+        nsView.onKeyDown = onKeyDown
+    }
+
+    class KeyCaptureView: NSView {
+        var onKeyDown: ((NSEvent) -> Void)?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func keyDown(with event: NSEvent) {
+            onKeyDown?(event)
+        }
     }
 }

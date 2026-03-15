@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover!
     private let appState = AppState()
     private let scanner = TerminalScanner()
+    private let hotkeyManager = HotkeyManager()
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Lifecycle
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupStatusItem()
         setupPopover()
+        setupHotkey()
         startScanning()
 
         // Update badge when terminal state changes
@@ -27,6 +29,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         scanner.stopPolling()
+        hotkeyManager.unregister()
+    }
+
+    // MARK: - Hotkey
+
+    private func setupHotkey() {
+        hotkeyManager.register { [weak self] in
+            DispatchQueue.main.async {
+                self?.togglePopover()
+            }
+        }
     }
 
     // MARK: - Scanning
