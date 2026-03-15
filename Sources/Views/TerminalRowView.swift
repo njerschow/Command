@@ -2,12 +2,14 @@ import SwiftUI
 
 struct TerminalRowView: View {
     let tab: TerminalTab
+    let group: TerminalGroup
     let summary: String?
     let lastActive: Date?
     let context: TerminalContext?
     let shortcutIndex: Int
     var isSelected: Bool = false
     let onSelect: () -> Void
+    var onSaveAndClose: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var isPressed = false
@@ -46,8 +48,11 @@ struct TerminalRowView: View {
 
                 Spacer(minLength: 4)
 
-                // Info button — only on hover
+                // Hover actions
                 if isHovered {
+                    if onSaveAndClose != nil {
+                        saveCloseButton
+                    }
                     infoButton
                 }
 
@@ -75,6 +80,21 @@ struct TerminalRowView: View {
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .popover(isPresented: $showInfo, arrowEdge: .trailing) {
             InfoPopoverView(tab: tab, context: context, lastActive: lastActive)
+        }
+    }
+
+    private var saveCloseButton: some View {
+        Button(action: { onSaveAndClose?() }) {
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity)
+        .help("Save & Close")
+        .onHover { inside in
+            if inside { NSCursor.pointingHand.push() }
+            else { NSCursor.pop() }
         }
     }
 

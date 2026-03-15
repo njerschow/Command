@@ -105,14 +105,17 @@ struct TerminalListView: View {
         let globalIdx = appState.globalIndex(for: group)
         return TerminalRowView(
             tab: tab,
+            group: group,
             summary: summaryManager.summary(for: tab.id),
             lastActive: effectiveLastActive(tab.id),
             context: summaryManager.context(for: tab.id),
             shortcutIndex: globalIdx,
-            isSelected: selectedIndex == globalIdx
-        ) {
-            focusTerminal(group: group, tab: tab)
-        }
+            isSelected: selectedIndex == globalIdx,
+            onSelect: { focusTerminal(group: group, tab: tab) },
+            onSaveAndClose: {
+                sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id))
+            }
+        )
     }
 
     private func multiTabSection(group: TerminalGroup) -> some View {
@@ -142,14 +145,17 @@ struct TerminalListView: View {
             ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
                 TerminalRowView(
                     tab: tab,
+                    group: group,
                     summary: summaryManager.summary(for: tab.id),
                     lastActive: effectiveLastActive(tab.id),
                     context: summaryManager.context(for: tab.id),
                     shortcutIndex: startIndex + index,
-                    isSelected: selectedIndex == startIndex + index
-                ) {
-                    focusTerminal(group: group, tab: tab)
-                }
+                    isSelected: selectedIndex == startIndex + index,
+                    onSelect: { focusTerminal(group: group, tab: tab) },
+                    onSaveAndClose: {
+                        sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id))
+                    }
+                )
             }
         }
     }

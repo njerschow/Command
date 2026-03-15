@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hookServer = ClaudeHookServer()
     private let hotkeyManager = HotkeyManager()
     private var cancellables = Set<AnyCancellable>()
+    private var lastDirCacheTime: Date = .distantPast
 
     // MARK: - Lifecycle
 
@@ -61,16 +62,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let previous = self.appState.terminalGroups
 
-            // Track closed sessions before updating state
+            // Cache working directories every 30s (lsof is expensive)
+            if Date().timeIntervalSince(self.lastDirCacheTime) > 30 {
+                self.lastDirCacheTime = Date()
+                DispatchQueue.global(qos: .utility).async {
+                    for group in groups {
+                        for tab in group.tabs {
+                            if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
+                                DispatchQueue.main.async {
+                                    self.sessionStore.cacheDirectory(dir, for: tab.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Track closed sessions before updating state (uses cached dirs)
             if !previous.isEmpty {
                 self.sessionStore.trackClosed(
                     current: groups,
                     previous: previous,
-                    summaryFor: { self.summaryManager.summary(for: $0) },
-                    directoryFor: { tabID -> String? in
-                        let tab = previous.flatMap { $0.tabs }.first { $0.id == tabID }
-                        return self.summaryManager.contentReader.workingDirectory(tty: tab?.tty)
-                    }
+                    summaryFor: { self.summaryManager.summary(for: $0) }
                 )
             }
 
