@@ -4,22 +4,35 @@ import Foundation
 /// Scans Terminal.app windows and tabs via AppleScript
 final class TerminalAppAdapter {
 
+    private var hasLoggedPermissionError = false
+
     func scan() -> [TerminalGroup] {
         guard isRunning() else { return [] }
+
+        // First try a simple check to see if we have Automation permission
+        let checkScript = """
+        tell application "Terminal" to count windows
+        """
+        guard let countStr = runAppleScript(checkScript),
+              let count = Int(countStr), count > 0 else {
+            if !hasLoggedPermissionError {
+                hasLoggedPermissionError = true
+                print("[TerminalAppAdapter] Cannot access Terminal.app — check Automation permission in System Settings > Privacy & Security > Automation")
+            }
+            return []
+        }
+        hasLoggedPermissionError = false
 
         let script = """
         tell application "Terminal"
             set output to ""
-            set winIndex to 0
             repeat with w in windows
-                set winIndex to winIndex + 1
                 set winID to id of w
                 set winName to name of w
-                set tabCount to count of tabs of w
                 set tabIndex to 0
                 repeat with t in tabs of w
                     set tabIndex to tabIndex + 1
-                    set tabName to name of t  -- custom title or process
+                    set tabName to name of t
                     set tabTTY to tty of t
                     set tabBusy to busy of t
                     set tabProcs to processes of t

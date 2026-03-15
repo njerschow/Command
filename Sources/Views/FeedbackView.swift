@@ -28,7 +28,7 @@ struct FeedbackView: View {
             HStack(spacing: 4) {
                 Image(systemName: "bubble.left")
                     .font(.system(size: 10))
-                Text("Suggest")
+                Text("Give feedback")
                     .font(.system(size: 11))
             }
             .foregroundStyle(.tertiary)
@@ -52,7 +52,7 @@ struct FeedbackView: View {
 
     private var feedbackInputRow: some View {
         HStack(spacing: 6) {
-            TextField("What would make this better?", text: $feedbackText, axis: .vertical)
+            TextField("What can we improve?", text: $feedbackText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .lineLimit(1...3)
