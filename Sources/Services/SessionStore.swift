@@ -62,6 +62,14 @@ final class SessionStore: ObservableObject {
                 continue
             }
 
+            // Skip if a saved session already exists for this directory (e.g. restored session closed)
+            if let dir = cachedDirectories[tab.id],
+               recentlyClosed.contains(where: { $0.workingDirectory == dir }) {
+                cachedDirectories.removeValue(forKey: tab.id)
+                cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                continue
+            }
+
             let session = SavedSession(
                 tabID: tab.id,
                 title: tab.title,
@@ -189,8 +197,8 @@ final class SessionStore: ObservableObject {
         appleScript?.executeAndReturnError(&error)
         if let error { print("[SessionStore] restore error: \(error)") }
 
-        recentlyClosed.removeAll { $0.id == session.id }
-        save()
+        // Keep session in the list — it will show green when the new terminal is detected
+        // User can dismiss it manually via the X button
     }
 
     func dismiss(_ session: SavedSession) {

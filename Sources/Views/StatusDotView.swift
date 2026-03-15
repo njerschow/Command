@@ -10,8 +10,8 @@ struct StatusDotView: View {
             // Outer glow for action required
             if status == .actionRequired {
                 Circle()
-                    .fill(Color.green.opacity(0.25))
-                    .frame(width: 12, height: 12)
+                    .fill(Color.orange.opacity(0.3))
+                    .frame(width: 16, height: 16)
                     .scaleEffect(isPulsing ? 1.4 : 0.8)
                     .opacity(isPulsing ? 0 : 0.6)
             }
@@ -19,10 +19,10 @@ struct StatusDotView: View {
             // Main dot
             Circle()
                 .fill(color)
-                .frame(width: 7, height: 7)
+                .frame(width: 9, height: 9)
                 .scaleEffect(isPulsing && status == .actionRequired ? 1.15 : 1.0)
         }
-        .frame(width: 12, height: 12)
+        .frame(width: 14, height: 14)
         .animation(
             status == .actionRequired
                 ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true)
@@ -44,8 +44,8 @@ struct StatusDotView: View {
     private var color: Color {
         switch status {
         case .idle: return .secondary.opacity(0.4)
-        case .running: return .blue.opacity(0.7)
-        case .actionRequired: return .green
+        case .running: return .green.opacity(0.8)
+        case .actionRequired: return .orange
         }
     }
 }

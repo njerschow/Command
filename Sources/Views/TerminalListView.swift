@@ -266,11 +266,20 @@ struct TerminalListView: View {
     /// Check if a saved session has been restored (matching cwd in active tabs)
     private func isSessionActive(_ session: SavedSession) -> Bool {
         guard let dir = session.workingDirectory else { return false }
+        // Check cached directories
         for group in appState.terminalGroups {
             for tab in group.tabs {
                 if sessionStore.cachedDirectory(for: tab.id) == dir {
                     return true
                 }
+            }
+        }
+        // Also check if any window title contains the directory name
+        let dirName = (dir as NSString).lastPathComponent
+        for group in appState.terminalGroups {
+            if group.windowTitle.contains(dirName) { return true }
+            for tab in group.tabs {
+                if tab.title.contains(dirName) { return true }
             }
         }
         return false
@@ -295,11 +304,11 @@ struct ClosedSessionRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Red dot for closed, green for active (already restored)
+            // Green dot for active (restored), gray for closed
             Circle()
-                .fill(isActive ? Color.green.opacity(0.6) : Color.red.opacity(0.5))
-                .frame(width: 7, height: 7)
-                .frame(width: 12, height: 12)
+                .fill(isActive ? Color.green.opacity(0.8) : Color.secondary.opacity(0.4))
+                .frame(width: 9, height: 9)
+                .frame(width: 14, height: 14)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
