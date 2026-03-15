@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Command</string>
+    <key>CFBundleDisplayName</key>
+    <string>Command</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.command.app</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>Command</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string></string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Command needs accessibility access to read terminal window information.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Command needs automation access to communicate with terminal applications.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Command needs screen recording access to read terminal window titles.</string>
+</dict>
+</plist>
