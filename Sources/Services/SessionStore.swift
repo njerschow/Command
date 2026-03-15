@@ -8,6 +8,8 @@ final class SessionStore: ObservableObject {
     private var cachedDirectories: [String: String] = [:]
     /// Cached Claude session IDs for live tabs (by tab ID)
     private var cachedClaudeSessionIDs: [String: String] = [:]
+    /// Tab IDs explicitly saved via Save & Close (to prevent duplicate tracking)
+    private var explicitlySaved: Set<String> = []
 
     private let maxSaved = 20
     private let storageURL: URL
@@ -53,6 +55,13 @@ final class SessionStore: ObservableObject {
 
         var changed = false
         for (group, tab) in previousTabs where !currentIDs.contains(tab.id) {
+            // Skip if already saved via explicit Save & Close
+            if explicitlySaved.remove(tab.id) != nil {
+                cachedDirectories.removeValue(forKey: tab.id)
+                cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                continue
+            }
+
             let session = SavedSession(
                 tabID: tab.id,
                 title: tab.title,
@@ -95,6 +104,7 @@ final class SessionStore: ObservableObject {
         if recentlyClosed.count > maxSaved {
             recentlyClosed = Array(recentlyClosed.prefix(maxSaved))
         }
+        explicitlySaved.insert(tab.id)
         save()
 
         // Close the terminal window

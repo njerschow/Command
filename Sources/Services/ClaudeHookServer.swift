@@ -170,61 +170,22 @@ final class ClaudeHookServer: ObservableObject {
 
         session.cwd = cwd
         session.lastUpdated = Date()
-
-        // Resolve TTY on first event (when tty is not yet known)
-        if session.tty == nil {
-            session.tty = Self.resolveTTY(forSessionID: sessionID)
-        }
-
         sessions[sessionID] = session
         lock.unlock()
 
         DispatchQueue.main.async { self.objectWillChange.send() }
     }
 
-    /// Resolve which TTY a Claude session is running on via ps
-    private static func resolveTTY(forSessionID sessionID: String) -> String? {
-        // Find claude processes and their TTYs
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "ps -eo tty,args 2>/dev/null | grep 'claude' | grep -v grep"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-            // Each line: "ttysNNN  /path/to/claude ..."
-            // We look for the session ID in the process args, or just return
-            // the TTY of any matching claude process
-            for line in output.components(separatedBy: "\n") {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty else { continue }
-                // If the session ID appears in the command args, exact match
-                if trimmed.contains(sessionID) {
-                    let tty = trimmed.components(separatedBy: .whitespaces).first ?? ""
-                    if !tty.isEmpty { return "/dev/\(tty)" }
-                }
-            }
-
-            // Fallback: can't match by session ID in args — return nil
-            // (will retry on next event)
-            return nil
-        } catch {
-            return nil
-        }
-    }
-
     // MARK: - Query
 
-    /// Find Claude session running on a specific TTY
-    func sessionID(forTTY tty: String) -> String? {
+    /// Find the most recent Claude session for a given working directory
+    func sessionID(forCwd cwd: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
-        return sessions.values.first { $0.tty == tty }?.sessionID
+        return sessions.values
+            .filter { $0.cwd == cwd }
+            .sorted { $0.lastUpdated > $1.lastUpdated }
+            .first?.sessionID
     }
 
     /// Find Claude session for a given working directory
@@ -249,7 +210,6 @@ final class ClaudeHookServer: ObservableObject {
 struct ClaudeSession {
     let sessionID: String
     var cwd: String
-    var tty: String?
     var state: ClaudeState
     var lastEvent: String = ""
     var lastUpdated: Date = Date()

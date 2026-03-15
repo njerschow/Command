@@ -5,6 +5,7 @@ struct TerminalListView: View {
     @EnvironmentObject var summaryManager: SummaryManager
     @EnvironmentObject var sessionStore: SessionStore
     @State private var selectedIndex: Int? = nil
+    @State private var savedExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -172,33 +173,52 @@ struct TerminalListView: View {
         }
     }
 
-    // MARK: - Recently Closed
+    // MARK: - Saved Sessions
 
     private var recentlyClosedSection: some View {
         VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 4) {
-                Text("Recently Closed")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+            // Collapsible header
+            Button(action: {
+                withAnimation(.easeOut(duration: 0.15)) { savedExpanded.toggle() }
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: savedExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 10)
 
-                Spacer()
+                    Text("Saved")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
 
-                Button("Clear") {
-                    withAnimation { sessionStore.clearAll() }
+                    Text("\(sessionStore.recentlyClosed.count)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.quaternary)
+
+                    Spacer()
+
+                    if savedExpanded {
+                        Button("Clear") {
+                            withAnimation { sessionStore.clearAll() }
+                        }
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .buttonStyle(.plain)
+                    }
                 }
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .buttonStyle(.plain)
             }
+            .buttonStyle(.plain)
             .padding(.horizontal, 14)
             .padding(.top, 10)
             .padding(.bottom, 4)
 
-            ForEach(sessionStore.recentlyClosed) { session in
-                ClosedSessionRow(session: session) {
-                    sessionStore.restore(session)
-                } onDismiss: {
-                    withAnimation { sessionStore.dismiss(session) }
+            if savedExpanded {
+                ForEach(sessionStore.recentlyClosed) { session in
+                    ClosedSessionRow(session: session) {
+                        sessionStore.restore(session)
+                    } onDismiss: {
+                        withAnimation { sessionStore.dismiss(session) }
+                    }
                 }
             }
         }

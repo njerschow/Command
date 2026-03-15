@@ -78,13 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            // Cache Claude session IDs by matching TTY to hook server sessions
+            // Cache Claude session IDs by matching cached cwd to hook server sessions
             for group in groups {
                 for tab in group.tabs {
-                    if tab.isClaudeSession, let tty = tab.tty {
-                        if let sid = self.hookServer.sessionID(forTTY: tty) {
-                            self.sessionStore.cacheClaudeSessionID(sid, for: tab.id)
-                        }
+                    if tab.isClaudeSession,
+                       let cwd = self.sessionStore.cachedDirectory(for: tab.id),
+                       let sid = self.hookServer.sessionID(forCwd: cwd) {
+                        self.sessionStore.cacheClaudeSessionID(sid, for: tab.id)
                     }
                 }
             }
