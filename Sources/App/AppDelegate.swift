@@ -71,11 +71,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if needsFullCache || !newTabs.isEmpty {
                 if needsFullCache { self.lastDirCacheTime = Date() }
                 let tabsToCache = needsFullCache ? groups.flatMap({ $0.tabs }) : newTabs
-                DispatchQueue.global(qos: .utility).async {
+                // New tabs: cache synchronously so directory is available before next scan
+                // Full refresh: can be async since we already have cached values
+                if !newTabs.isEmpty && !needsFullCache {
+                    // Only new tabs — resolve synchronously on this thread
                     for tab in tabsToCache {
                         if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
-                            DispatchQueue.main.async {
-                                self.sessionStore.cacheDirectory(dir, for: tab.id)
+                            self.sessionStore.cacheDirectory(dir, for: tab.id)
+                        }
+                    }
+                } else {
+                    DispatchQueue.global(qos: .utility).async {
+                        for tab in tabsToCache {
+                            if let dir = self.summaryManager.contentReader.workingDirectory(tty: tab.tty) {
+                                DispatchQueue.main.async {
+                                    self.sessionStore.cacheDirectory(dir, for: tab.id)
+                                }
                             }
                         }
                     }

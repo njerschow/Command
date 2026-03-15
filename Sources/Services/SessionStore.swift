@@ -8,8 +8,7 @@ final class SessionStore: ObservableObject {
     private var cachedDirectories: [String: String] = [:]
     /// Cached Claude session IDs for live tabs (by tab ID)
     private var cachedClaudeSessionIDs: [String: String] = [:]
-    /// Tab IDs explicitly saved via Save & Close (to prevent duplicate tracking)
-    /// Entries auto-expire after 30s to prevent stale entries if close fails
+    /// Tab IDs explicitly saved via Save & Close (auto-expires after 30s)
     private var explicitlySaved: [String: Date] = [:]
     /// Session IDs that have been restored (shown as active/green)
     @Published private(set) var restoredSessionIDs: Set<String> = []
@@ -29,7 +28,6 @@ final class SessionStore: ObservableObject {
 
     // MARK: - Directory Cache
 
-    /// Cache working directory for a live tab (call on every scan)
     func cacheDirectory(_ dir: String?, for tabID: String) {
         if let dir, !dir.isEmpty {
             cachedDirectories[tabID] = dir
@@ -40,7 +38,6 @@ final class SessionStore: ObservableObject {
         cachedDirectories[tabID]
     }
 
-    /// Cache Claude session ID for a live tab
     func cacheClaudeSessionID(_ sessionID: String?, for tabID: String) {
         if let sessionID, !sessionID.isEmpty {
             cachedClaudeSessionIDs[tabID] = sessionID
@@ -49,7 +46,6 @@ final class SessionStore: ObservableObject {
 
     // MARK: - Track Closed Tabs
 
-    /// Compare current scan with previous to detect closed tabs, saving their sessions
     func trackClosed(
         current: [TerminalGroup],
         previous: [TerminalGroup],
@@ -60,17 +56,9 @@ final class SessionStore: ObservableObject {
 
         var changed = false
         for (group, tab) in previousTabs where !currentIDs.contains(tab.id) {
-            // Skip if already saved via explicit Save & Close
+            // Skip if already saved via explicit Save & Close (within 30s)
             if let savedAt = explicitlySaved.removeValue(forKey: tab.id),
                Date().timeIntervalSince(savedAt) < 30 {
-                cachedDirectories.removeValue(forKey: tab.id)
-                cachedClaudeSessionIDs.removeValue(forKey: tab.id)
-                continue
-            }
-
-            // Skip if a saved session already exists for this directory (e.g. restored session closed)
-            if let dir = cachedDirectories[tab.id],
-               recentlyClosed.contains(where: { $0.workingDirectory == dir }) {
                 cachedDirectories.removeValue(forKey: tab.id)
                 cachedClaudeSessionIDs.removeValue(forKey: tab.id)
                 continue
@@ -102,8 +90,6 @@ final class SessionStore: ObservableObject {
 
     // MARK: - Save & Close
 
-    /// Explicitly save a session and close its terminal window
-    /// Pass contentReader and hookServer for real-time resolution (not just cached values)
     func saveAndClose(group: TerminalGroup, tab: TerminalTab, summary: String?,
                       contentReader: ContentReader? = nil, hookServer: ClaudeHookServer? = nil) {
         // Resolve directory NOW (in case cache hasn't populated yet)
@@ -137,7 +123,6 @@ final class SessionStore: ObservableObject {
         explicitlySaved[tab.id] = Date()
         save()
 
-        // Close the terminal window
         closeTerminalWindow(app: group.app, windowID: group.windowID)
     }
 
@@ -182,18 +167,25 @@ final class SessionStore: ObservableObject {
         let command: String
         if session.wasClaudeSession {
             if let sid = session.claudeSessionID {
-                // Resume exact Claude session
                 command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
             } else {
-                // No session ID — continue most recent in that directory
                 command = "cd \\\"\(escapedDir)\\\" && claude --continue"
             }
         } else {
             command = "cd \\\"\(escapedDir)\\\" && clear"
         }
 
+        // Use the correct terminal app
+        let appName: String
+        switch session.app {
+        case TerminalApp.iterm.rawValue:
+            appName = "iTerm2"
+        default:
+            appName = "Terminal"
+        }
+
         let script = """
-        tell application "Terminal"
+        tell application "\(appName)"
             activate
             do script "\(command)"
         end tell
@@ -203,11 +195,9 @@ final class SessionStore: ObservableObject {
         appleScript?.executeAndReturnError(&error)
         if let error {
             print("[SessionStore] restore error: \(error)")
-            // Don't mark as restored if AppleScript failed
             return
         }
 
-        // Mark as restored — shows green dot immediately
         restoredSessionIDs.insert(session.id)
         save()
     }
@@ -233,7 +223,6 @@ final class SessionStore: ObservableObject {
         } catch {
             print("[SessionStore] save error: \(error)")
         }
-        // Persist restored IDs
         do {
             let data = try JSONEncoder().encode(Array(restoredSessionIDs))
             try data.write(to: restoredURL, options: .atomic)
