@@ -3,6 +3,7 @@ import SwiftUI
 struct TerminalListView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var summaryManager: SummaryManager
+    @EnvironmentObject var sessionStore: SessionStore
     @State private var selectedIndex: Int? = nil
 
     var body: some View {
@@ -69,13 +70,17 @@ struct TerminalListView: View {
 
     @ViewBuilder
     private var terminalList: some View {
-        if appState.terminalGroups.isEmpty {
+        if appState.terminalGroups.isEmpty && sessionStore.recentlyClosed.isEmpty {
             emptyState
         } else {
             ScrollView {
                 VStack(spacing: 2) {
                     ForEach(appState.sortedGroups) { group in
                         terminalGroupView(group)
+                    }
+
+                    if !sessionStore.recentlyClosed.isEmpty {
+                        recentlyClosedSection
                     }
                 }
                 .padding(.vertical, 6)
@@ -161,6 +166,38 @@ struct TerminalListView: View {
         }
     }
 
+    // MARK: - Recently Closed
+
+    private var recentlyClosedSection: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 4) {
+                Text("Recently Closed")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button("Clear") {
+                    withAnimation { sessionStore.clearAll() }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            ForEach(sessionStore.recentlyClosed) { session in
+                ClosedSessionRow(session: session) {
+                    sessionStore.restore(session)
+                } onDismiss: {
+                    withAnimation { sessionStore.dismiss(session) }
+                }
+            }
+        }
+    }
+
     // MARK: - Empty State
 
     private var emptyState: some View {
@@ -196,6 +233,84 @@ struct TerminalListView: View {
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
         WindowFocuser.shared.focus(group: group, tab: tab)
+    }
+}
+
+// MARK: - Closed Session Row
+
+struct ClosedSessionRow: View {
+    let session: SavedSession
+    let onRestore: () -> Void
+    let onDismiss: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "terminal")
+                .font(.system(size: 9))
+                .foregroundStyle(.quaternary)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if let dir = session.workingDirectory {
+                    Text(dir.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.quaternary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            if isHovered {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+
+                Button(action: onRestore) {
+                    Image(systemName: "arrow.uturn.left")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+            } else {
+                Text(relativeTime(session.closedAt))
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(.quaternary)
+            }
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, 10)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(0.04) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onRestore() }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let seconds = -date.timeIntervalSinceNow
+        if seconds < 60 { return "now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m" }
+        if seconds < 86400 { return "\(Int(seconds / 3600))h" }
+        if seconds < 604800 { return "\(Int(seconds / 86400))d" }
+        return "\(Int(seconds / 604800))w"
     }
 }
 

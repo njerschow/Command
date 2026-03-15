@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let appState = AppState()
     private let scanner = TerminalScanner()
     private let summaryManager = SummaryManager()
+    private let sessionStore = SessionStore()
     private let hotkeyManager = HotkeyManager()
     private var cancellables = Set<AnyCancellable>()
 
@@ -50,7 +51,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startScanning() {
         scanner.startPolling(interval: 2.0) { [weak self] groups in
             guard let self else { return }
-            self.appState.updateActivity(groups: groups, previous: self.appState.terminalGroups)
+            let previous = self.appState.terminalGroups
+
+            // Track closed sessions before updating state
+            if !previous.isEmpty {
+                self.sessionStore.trackClosed(
+                    current: groups,
+                    previous: previous,
+                    summaryFor: { self.summaryManager.summary(for: $0) },
+                    directoryFor: { tabID -> String? in
+                        let tab = previous.flatMap { $0.tabs }.first { $0.id == tabID }
+                        return self.summaryManager.contentReader.workingDirectory(tty: tab?.tty)
+                    }
+                )
+            }
+
+            self.appState.updateActivity(groups: groups, previous: previous)
             self.appState.terminalGroups = groups
         }
     }
@@ -101,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let contentView = TerminalListView()
             .environmentObject(appState)
             .environmentObject(summaryManager)
+            .environmentObject(sessionStore)
 
         let hosting = NSHostingController(rootView: contentView)
         hosting.sizingOptions = .preferredContentSize

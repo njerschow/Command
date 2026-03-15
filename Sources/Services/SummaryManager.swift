@@ -5,7 +5,7 @@ import Combine
 final class SummaryManager: ObservableObject {
     @Published var contexts: [String: TerminalContext] = [:]
 
-    private let contentReader = ContentReader()
+    let contentReader = ContentReader()
     private var timer: Timer?
     private var isRefreshing = false
     private weak var appState: AppState?
