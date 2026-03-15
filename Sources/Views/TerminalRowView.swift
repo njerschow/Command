@@ -50,12 +50,12 @@ struct TerminalRowView: View {
                 if tab.isClaudeSession || claudeState != nil {
                     Text("claude")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.quaternary)
+                        .foregroundStyle(.tertiary)
                         .padding(.horizontal, 3)
                         .padding(.vertical, 1)
                         .background(
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(Color.primary.opacity(0.04))
+                                .fill(Color.primary.opacity(0.06))
                         )
                 }
 

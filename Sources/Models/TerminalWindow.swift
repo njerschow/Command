@@ -57,7 +57,7 @@ struct TerminalTab: Identifiable, Equatable {
     }
 
     static func == (lhs: TerminalTab, rhs: TerminalTab) -> Bool {
-        lhs.id == rhs.id && lhs.title == rhs.title && lhs.status == rhs.status
+        lhs.id == rhs.id && lhs.title == rhs.title && lhs.status == rhs.status && lhs.processes == rhs.processes
     }
 }
 

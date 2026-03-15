@@ -178,21 +178,35 @@ final class ClaudeHookServer: ObservableObject {
 
     // MARK: - Query
 
+    /// Normalize path for comparison (strip trailing slash, resolve symlinks)
+    private func normalizePath(_ path: String) -> String {
+        var p = path
+        while p.hasSuffix("/") && p.count > 1 { p.removeLast() }
+        // Resolve symlinks for consistent matching
+        let url = URL(fileURLWithPath: p).standardized
+        return url.path
+    }
+
     /// Find the most recent Claude session for a given working directory
     func sessionID(forCwd cwd: String) -> String? {
         lock.lock()
         defer { lock.unlock() }
+        let normalized = normalizePath(cwd)
         return sessions.values
-            .filter { $0.cwd == cwd }
+            .filter { normalizePath($0.cwd) == normalized }
             .sorted { $0.lastUpdated > $1.lastUpdated }
             .first?.sessionID
     }
 
-    /// Find Claude session for a given working directory
+    /// Find Claude session for a given working directory (most recent if multiple)
     func session(forCwd cwd: String) -> ClaudeSession? {
         lock.lock()
         defer { lock.unlock() }
-        return sessions.values.first { $0.cwd == cwd }
+        let normalized = normalizePath(cwd)
+        return sessions.values
+            .filter { normalizePath($0.cwd) == normalized }
+            .sorted { $0.lastUpdated > $1.lastUpdated }
+            .first
     }
 
     /// Check if any session needs attention

@@ -4,51 +4,62 @@ struct StatusDotView: View {
     let status: TerminalStatus
     var claudeState: ClaudeState? = nil
 
-    @State private var isPulsing = false
-
     var body: some View {
         if let claudeState, claudeState == .working {
             ClaudeSparkleView()
                 .frame(width: 14, height: 14)
         } else {
-            ZStack {
-                // Outer glow for action required
-                if status == .actionRequired || claudeState == .needsPermission {
-                    Circle()
-                        .fill(Color.orange.opacity(0.3))
-                        .frame(width: 16, height: 16)
-                        .scaleEffect(isPulsing ? 1.4 : 0.8)
-                        .opacity(isPulsing ? 0 : 0.6)
-                }
+            StaticDotView(status: status, claudeState: claudeState)
+        }
+    }
+}
 
-                // Main dot
+// MARK: - Static Dot (non-sparkle states)
+
+private struct StaticDotView: View {
+    let status: TerminalStatus
+    let claudeState: ClaudeState?
+
+    @State private var isPulsing = false
+
+    private var needsPulse: Bool {
+        status == .actionRequired || claudeState == .waitingForUser || claudeState == .needsPermission
+    }
+
+    var body: some View {
+        ZStack {
+            if status == .actionRequired || claudeState == .needsPermission {
                 Circle()
-                    .fill(dotColor)
-                    .frame(width: 9, height: 9)
-                    .scaleEffect(isPulsing && (status == .actionRequired || claudeState == .waitingForUser || claudeState == .needsPermission) ? 1.15 : 1.0)
+                    .fill(Color.orange.opacity(0.3))
+                    .frame(width: 16, height: 16)
+                    .scaleEffect(isPulsing ? 1.4 : 0.8)
+                    .opacity(isPulsing ? 0 : 0.6)
             }
-            .frame(width: 14, height: 14)
-            .animation(
-                (status == .actionRequired || claudeState == .waitingForUser || claudeState == .needsPermission)
-                    ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true)
-                    : .default,
-                value: isPulsing
-            )
-            .onAppear {
-                if status == .actionRequired || claudeState == .waitingForUser || claudeState == .needsPermission {
-                    isPulsing = true
-                }
-            }
-            .onChange(of: status) { _, newStatus in
-                withAnimation {
-                    isPulsing = newStatus == .actionRequired || claudeState == .waitingForUser || claudeState == .needsPermission
-                }
-            }
+
+            Circle()
+                .fill(dotColor)
+                .frame(width: 9, height: 9)
+                .scaleEffect(isPulsing && needsPulse ? 1.15 : 1.0)
+        }
+        .frame(width: 14, height: 14)
+        .animation(
+            needsPulse
+                ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true)
+                : .default,
+            value: isPulsing
+        )
+        .onAppear {
+            if needsPulse { isPulsing = true }
+        }
+        .onChange(of: status) { _, _ in
+            withAnimation { isPulsing = needsPulse }
+        }
+        .onChange(of: claudeState) { _, _ in
+            withAnimation { isPulsing = needsPulse }
         }
     }
 
     private var dotColor: Color {
-        // Claude states override
         if let claudeState {
             switch claudeState {
             case .working: return .green.opacity(0.8)
@@ -69,7 +80,6 @@ struct StatusDotView: View {
 /// Replicates the Claude Code CLI sparkle: · ✢ ✳ ✶ ✻ ✽ with ping-pong
 struct ClaudeSparkleView: View {
     private static let phases: [String] = ["·", "✢", "✳", "✶", "✻", "✽"]
-    // Full ping-pong cycle: forward then reverse (minus endpoints to avoid doubling)
     private static let cycle: [String] = phases + phases.dropFirst().dropLast().reversed()
 
     @State private var currentIndex = 0
@@ -86,9 +96,8 @@ struct ClaudeSparkleView: View {
     }
 
     private var opacity: Double {
-        // Map position in cycle to opacity: dim at start, bright at peak
         let pos = Double(currentIndex) / Double(Self.cycle.count - 1)
-        let wave = sin(pos * .pi) // 0 → 1 → 0
+        let wave = sin(pos * .pi)
         return 0.4 + wave * 0.6
     }
 }

@@ -9,18 +9,21 @@ final class SessionStore: ObservableObject {
     /// Cached Claude session IDs for live tabs (by tab ID)
     private var cachedClaudeSessionIDs: [String: String] = [:]
     /// Tab IDs explicitly saved via Save & Close (to prevent duplicate tracking)
-    private var explicitlySaved: Set<String> = []
+    /// Entries auto-expire after 30s to prevent stale entries if close fails
+    private var explicitlySaved: [String: Date] = [:]
     /// Session IDs that have been restored (shown as active/green)
     @Published private(set) var restoredSessionIDs: Set<String> = []
 
     private let maxSaved = 20
     private let storageURL: URL
+    private let restoredURL: URL
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = appSupport.appendingPathComponent("Command", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         storageURL = dir.appendingPathComponent("sessions.json")
+        restoredURL = dir.appendingPathComponent("restored.json")
         load()
     }
 
@@ -58,7 +61,8 @@ final class SessionStore: ObservableObject {
         var changed = false
         for (group, tab) in previousTabs where !currentIDs.contains(tab.id) {
             // Skip if already saved via explicit Save & Close
-            if explicitlySaved.remove(tab.id) != nil {
+            if let savedAt = explicitlySaved.removeValue(forKey: tab.id),
+               Date().timeIntervalSince(savedAt) < 30 {
                 cachedDirectories.removeValue(forKey: tab.id)
                 cachedClaudeSessionIDs.removeValue(forKey: tab.id)
                 continue
@@ -130,7 +134,7 @@ final class SessionStore: ObservableObject {
         if recentlyClosed.count > maxSaved {
             recentlyClosed = Array(recentlyClosed.prefix(maxSaved))
         }
-        explicitlySaved.insert(tab.id)
+        explicitlySaved[tab.id] = Date()
         save()
 
         // Close the terminal window
@@ -197,10 +201,15 @@ final class SessionStore: ObservableObject {
         let appleScript = NSAppleScript(source: script)
         var error: NSDictionary?
         appleScript?.executeAndReturnError(&error)
-        if let error { print("[SessionStore] restore error: \(error)") }
+        if let error {
+            print("[SessionStore] restore error: \(error)")
+            // Don't mark as restored if AppleScript failed
+            return
+        }
 
         // Mark as restored — shows green dot immediately
         restoredSessionIDs.insert(session.id)
+        save()
     }
 
     func dismiss(_ session: SavedSession) {
@@ -224,15 +233,32 @@ final class SessionStore: ObservableObject {
         } catch {
             print("[SessionStore] save error: \(error)")
         }
+        // Persist restored IDs
+        do {
+            let data = try JSONEncoder().encode(Array(restoredSessionIDs))
+            try data.write(to: restoredURL, options: .atomic)
+        } catch {
+            print("[SessionStore] save restored error: \(error)")
+        }
     }
 
     private func load() {
-        guard FileManager.default.fileExists(atPath: storageURL.path) else { return }
-        do {
-            let data = try Data(contentsOf: storageURL)
-            recentlyClosed = try JSONDecoder().decode([SavedSession].self, from: data)
-        } catch {
-            print("[SessionStore] load error: \(error)")
+        if FileManager.default.fileExists(atPath: storageURL.path) {
+            do {
+                let data = try Data(contentsOf: storageURL)
+                recentlyClosed = try JSONDecoder().decode([SavedSession].self, from: data)
+            } catch {
+                print("[SessionStore] load error: \(error)")
+            }
+        }
+        if FileManager.default.fileExists(atPath: restoredURL.path) {
+            do {
+                let data = try Data(contentsOf: restoredURL)
+                let ids = try JSONDecoder().decode([String].self, from: data)
+                restoredSessionIDs = Set(ids)
+            } catch {
+                print("[SessionStore] load restored error: \(error)")
+            }
         }
     }
 }
