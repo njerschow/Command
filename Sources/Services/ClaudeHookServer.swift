@@ -28,9 +28,12 @@ final class ClaudeHookServer: ObservableObject {
         let hookURL = "http://localhost:\(port)/claude-event"
 
         var root: [String: Any]
-        if FileManager.default.fileExists(atPath: settingsURL.path),
-           let data = try? Data(contentsOf: settingsURL),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if FileManager.default.fileExists(atPath: settingsURL.path) {
+            guard let data = try? Data(contentsOf: settingsURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("[ClaudeHookServer] Warning: ~/.claude/settings.json exists but could not be parsed, skipping hook configuration")
+                return
+            }
             root = json
         } else {
             // Create ~/.claude/ if needed
@@ -73,7 +76,11 @@ final class ClaudeHookServer: ObservableObject {
         do {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
-            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+            params.requiredLocalEndpoint = NWEndpoint.hostPort(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: port)!
+            )
+            listener = try NWListener(using: params)
         } catch {
             print("[ClaudeHookServer] Failed to create listener: \(error)")
             return
@@ -104,6 +111,8 @@ final class ClaudeHookServer: ObservableObject {
 
     // MARK: - Connection Handling
 
+    private static let maxRequestSize = 1_048_576  // 1 MB
+
     private func handleConnection(_ connection: NWConnection) {
         connection.start(queue: queue)
         var accumulated = Data()
@@ -111,6 +120,12 @@ final class ClaudeHookServer: ObservableObject {
         func receiveMore() {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
                 if let data { accumulated.append(data) }
+
+                if accumulated.count > ClaudeHookServer.maxRequestSize {
+                    print("[ClaudeHookServer] Request exceeded \(ClaudeHookServer.maxRequestSize) bytes, dropping connection")
+                    connection.cancel()
+                    return
+                }
 
                 if isComplete || error != nil {
                     self?.processHTTPRequest(accumulated)

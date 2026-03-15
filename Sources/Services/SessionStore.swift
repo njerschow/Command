@@ -320,13 +320,24 @@ final class SessionStore: ObservableObject {
     func restore(_ session: SavedSession) {
         // Require working directory — should always be present since we don't save without it
         guard let dir = session.workingDirectory else { return }
-        let escapedDir = dir.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedDir = dir
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "`", with: "\\`")
 
         let command: String
         if session.wasClaudeSession {
             // Require session ID — should always be present since we don't save Claude sessions without it
             guard let sid = session.claudeSessionID else { return }
-            command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
+            // Validate session ID contains only safe characters to prevent command injection
+            let isSafeSID = sid.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+            if isSafeSID && !sid.isEmpty {
+                command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
+            } else {
+                // Unsafe session ID — restore directory only, skip --resume
+                command = "cd \\\"\(escapedDir)\\\" && claude"
+            }
         } else {
             command = "cd \\\"\(escapedDir)\\\" && clear"
         }

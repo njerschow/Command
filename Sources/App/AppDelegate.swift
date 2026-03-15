@@ -144,15 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Status Item
 
     private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         guard let button = statusItem.button else { return }
 
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        button.image = NSImage(
-            systemSymbolName: "terminal.fill",
-            accessibilityDescription: "Command"
-        )?.withSymbolConfiguration(config)
+        button.title = "⌘."
+        button.font = NSFont.systemFont(ofSize: 14, weight: .medium)
 
         button.action = #selector(togglePopover)
         button.target = self
@@ -164,20 +161,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
 
         if appState.hasActionRequired || hookServer.hasActionRequired {
-            button.image = NSImage(
-                systemSymbolName: "terminal.fill",
-                accessibilityDescription: "Command — action required"
-            )?.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-                    .applying(NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor]))
-            )
+            let attributed = NSAttributedString(string: "⌘.", attributes: [
+                .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                .foregroundColor: NSColor.controlAccentColor
+            ])
+            button.attributedTitle = attributed
         } else {
-            button.image = NSImage(
-                systemSymbolName: "terminal.fill",
-                accessibilityDescription: "Command"
-            )?.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-            )
+            button.attributedTitle = NSAttributedString(string: "⌘.", attributes: [
+                .font: NSFont.systemFont(ofSize: 14, weight: .medium)
+            ])
         }
     }
 

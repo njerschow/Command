@@ -307,15 +307,20 @@ struct TerminalListView: View {
 
             if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
                 Button(action: { showUpdatePopover.toggle() }) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 9))
-                        Text("v\(version) available")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(.blue)
+                            .frame(width: 6, height: 6)
+                        Text("v\(version)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     }
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside { NSCursor.pointingHand.push() }
+                    else { NSCursor.pop() }
+                }
                 .popover(isPresented: $showUpdatePopover, arrowEdge: .top) {
                     UpdatePopoverView()
                         .environmentObject(updateChecker)

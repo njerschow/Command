@@ -46,33 +46,64 @@ struct UpdatePopoverView: View {
                 }
             }
 
-            // Action buttons
-            HStack(spacing: 8) {
-                if let downloadURL = updateChecker.downloadURL,
-                   let url = URL(string: downloadURL) {
-                    Button(action: { NSWorkspace.shared.open(url) }) {
-                        Text("Download")
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
+            // Install commands
+            VStack(alignment: .leading, spacing: 4) {
+                Text("To update:")
+                    .font(.system(size: 11, weight: .medium))
 
-                if let releaseURL = updateChecker.releaseURL,
-                   let url = URL(string: releaseURL) {
-                    Button(action: { NSWorkspace.shared.open(url) }) {
-                        Text("View on GitHub")
-                            .font(.system(size: 12))
-                            .frame(maxWidth: .infinity)
+                let commands = "cd \(repoPath)\ngit pull origin main\nmake run"
+                Text(commands)
+                    .font(.system(size: 10, design: .monospaced))
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .textSelection(.enabled)
+
+                HStack(spacing: 8) {
+                    Button(action: { copyToClipboard(commands) }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 9))
+                            Text("Copy")
+                                .font(.system(size: 11))
+                        }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+
+                    if let releaseURL = updateChecker.releaseURL,
+                       let url = URL(string: releaseURL) {
+                        Button(action: { NSWorkspace.shared.open(url) }) {
+                            Text("Release Notes")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                 }
             }
         }
         .padding(12)
         .frame(width: 300)
+    }
+
+    /// Best guess at where the repo is cloned locally
+    private var repoPath: String {
+        // Use the app bundle's grandparent: build/Command.app → build → repo root
+        let bundlePath = Bundle.main.bundlePath
+        let buildDir = (bundlePath as NSString).deletingLastPathComponent
+        let repoDir = (buildDir as NSString).deletingLastPathComponent
+        // Sanity check: if Package.swift exists there, it's the repo
+        if FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent("Package.swift")) {
+            return repoDir
+        }
+        return "~/Command"
+    }
+
+    private func copyToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     /// Remove video embeds from release notes so we don't show them twice
