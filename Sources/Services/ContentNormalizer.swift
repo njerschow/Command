@@ -22,8 +22,9 @@ enum ContentNormalizer {
         )
 
         // Braille spinner characters U+2800-U+28FF (Claude Code, OpenClaw)
+        // Use actual Unicode chars so ICU regex sees the range correctly
         s = s.replacingOccurrences(
-            of: "[\\u{2800}-\\u{28FF}]",
+            of: "[\u{2800}-\u{28FF}]",
             with: "", options: .regularExpression
         )
 
