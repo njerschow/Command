@@ -1,10 +1,13 @@
 import AppKit
 import SwiftUI
+import Combine
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private let appState = AppState()
+    private let scanner = TerminalScanner()
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Lifecycle
 
@@ -13,9 +16,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupStatusItem()
         setupPopover()
+        startScanning()
 
-        // Load mock data for now
-        appState.loadMockData()
+        // Update badge when terminal state changes
+        appState.$terminalGroups
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateBadge() }
+            .store(in: &cancellables)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        scanner.stopPolling()
+    }
+
+    // MARK: - Scanning
+
+    private func startScanning() {
+        scanner.startPolling(interval: 2.0) { [weak self] groups in
+            self?.appState.terminalGroups = groups
+        }
     }
 
     // MARK: - Status Item
@@ -40,7 +59,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func updateBadge() {
         guard let button = statusItem?.button else { return }
 
-        // Show a small dot overlay when action is required
         if appState.hasActionRequired {
             button.image = NSImage(
                 systemSymbolName: "terminal.fill",

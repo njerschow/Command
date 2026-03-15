@@ -138,7 +138,6 @@ struct TerminalListView: View {
     // MARK: - Actions
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
-        // TODO: implement window focusing
-        print("Focus: \(group.displayName) → \(tab.title)")
+        WindowFocuser.shared.focus(group: group, tab: tab)
     }
 }
