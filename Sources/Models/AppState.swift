@@ -39,8 +39,10 @@ final class AppState: ObservableObject {
                         lastActivity[tab.id] = Date()
                     }
                 } else {
-                    // New tab
-                    lastActivity[tab.id] = Date()
+                    // New tab — only timestamp if it's actively doing something
+                    if tab.status != .idle {
+                        lastActivity[tab.id] = Date()
+                    }
                 }
             }
         }

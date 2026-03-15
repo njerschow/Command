@@ -54,39 +54,42 @@ final class SummaryManager: ObservableObject {
             guard let self else { return }
 
             var updated = snapshot
-            var aiBatch: [(id: String, wid: Int, tidx: Int, content: String, narrative: String)] = []
+            var aiBatch: [(id: String, wid: Int, tidx: Int, content: String, narrative: String, title: String)] = []
             var activeIDs = Set<String>()
 
             for group in groups {
                 for tab in group.tabs {
                     activeIDs.insert(tab.id)
                     var ctx = updated[tab.id] ?? TerminalContext()
+                    let isFirstCheck = ctx.lastChecked == .distantPast
 
-                    // 1. Idle tabs — no content read needed
-                    if tab.status == .idle {
-                        let prev = ctx.currentSummary
-                        ctx.currentSummary = "Shell — idle"
-                        ctx.summaryMethod = .idle
+                    // For idle tabs that already have a summary, just keep it.
+                    // The gray dot communicates idle — the summary should still
+                    // describe what's in that terminal.
+                    if tab.status == .idle && !isFirstCheck && !ctx.currentSummary.isEmpty {
                         ctx.lastChecked = Date()
-                        if prev != ctx.currentSummary && !prev.isEmpty {
-                            ctx.pushHistory(prev)
-                        }
                         updated[tab.id] = ctx
                         continue
                     }
 
-                    // 2. Adaptive interval — skip if unchanged many times
-                    if ctx.unchangedCount >= 5 && ctx.unchangedCount % 3 != 0 {
+                    // Adaptive interval — skip if unchanged many times (not on first check)
+                    if !isFirstCheck && ctx.unchangedCount >= 5 && ctx.unchangedCount % 3 != 0 {
                         ctx.unchangedCount += 1
                         updated[tab.id] = ctx
                         continue
                     }
 
-                    // 3. Read content
+                    // Read content — even for idle tabs on first check
                     guard let content = self.contentReader.readHistory(
                         windowID: group.windowID,
                         tabIndex: tab.tabIndex
                     ) else {
+                        // Can't read content — use title as fallback
+                        if ctx.currentSummary.isEmpty {
+                            ctx.currentSummary = tab.title
+                            ctx.summaryMethod = .windowTitle
+                        }
+                        ctx.lastChecked = Date()
                         updated[tab.id] = ctx
                         continue
                     }
@@ -95,20 +98,22 @@ final class SummaryManager: ObservableObject {
                     let fp = ContentNormalizer.fingerprint(last10)
                     ctx.lastChecked = Date()
 
-                    // 4. Unchanged?
+                    // Unchanged and already have a summary? Skip.
                     if fp == ctx.lastFingerprint && !ctx.currentSummary.isEmpty {
                         ctx.unchangedCount += 1
                         updated[tab.id] = ctx
                         continue
                     }
 
-                    // 5. Content changed — also check for input prompts
+                    // Content changed (or first check)
                     ctx.unchangedCount = 0
                     ctx.lastFingerprint = fp
-                    ctx.lastChanged = Date()
+                    if !isFirstCheck {
+                        ctx.lastChanged = Date()
+                    }
                     ctx.statusOverride = self.detectInputWaiting(content: content)
 
-                    // 6. Try local heuristic
+                    // Try local heuristic — only for cases where we can be SPECIFIC
                     if let local = self.localHeuristic(tab: tab, content: content) {
                         let prev = ctx.currentSummary
                         ctx.currentSummary = local
@@ -119,11 +124,12 @@ final class SummaryManager: ObservableObject {
                         continue
                     }
 
-                    // 7. Queue for AI batch
+                    // Queue for AI batch — this is the default path
                     aiBatch.append((
                         tab.id, group.windowID, tab.tabIndex,
                         ContentNormalizer.normalize(content),
-                        ctx.narrativeContext
+                        ctx.narrativeContext,
+                        tab.title
                     ))
                     updated[tab.id] = ctx
                 }
@@ -134,7 +140,7 @@ final class SummaryManager: ObservableObject {
                 updated.removeValue(forKey: key)
             }
 
-            // 8. Batch AI summaries
+            // Batch AI summaries — the primary summarization path
             if !aiBatch.isEmpty {
                 let results = self.generateAISummaries(batch: aiBatch)
                 for (id, summary) in results {
@@ -156,76 +162,19 @@ final class SummaryManager: ObservableObject {
         }
     }
 
-    // MARK: - Local Heuristics
+    // MARK: - Local Heuristics (only for cases where we can be SPECIFIC)
 
     private func localHeuristic(tab: TerminalTab, content: String) -> String? {
         let title = tab.title.lowercased()
-        let lower = content.lowercased()
 
-        // Claude Code — detect by braille spinners or "⏺" marker
-        if lower.contains("claude") && (content.contains("⏺") || lower.contains("claudecode")) {
-            return "Claude Code session"
-        }
-
-        // SSH
-        if title.contains("ssh") || lower.range(of: "^ssh\\s+", options: .regularExpression) != nil {
-            if let host = extractSSHHost(from: tab.title) {
-                return "SSH — \(host)"
-            }
-            return "SSH session"
-        }
-
-        // Vim/Neovim
+        // Vim/Neovim — specific enough to handle locally
         if title.contains("vim") || title.contains("nvim") {
             return "Editing in vim"
         }
 
-        // Server listening
-        if lower.contains("listening on port") || lower.contains("server started") ||
-           lower.contains("ready on http") {
-            return "Server running"
-        }
-
-        // Docker
-        if lower.contains("docker compose") || lower.contains("docker run") {
-            return "Docker running"
-        }
-
-        // Building
-        if lower.contains("compiling ") || lower.contains("building for") ||
-           lower.contains("build complete") || lower.contains("build succeeded") {
-            return "Building project"
-        }
-
-        // Log watching
-        if title.contains("tail") || lower.contains("tail -f") {
-            return "Watching logs"
-        }
-
-        // Python REPL
-        if title.contains("python") || lower.contains(">>> ") {
-            return "Python session"
-        }
-
-        // htop/top
-        if title.contains("htop") || (title.contains("top") && lower.contains("cpu")) {
-            return "System monitor"
-        }
-
-        // npm/yarn
-        if lower.contains("npm run ") || lower.contains("yarn ") {
-            return "npm script running"
-        }
-
-        return nil  // Needs AI
-    }
-
-    private func extractSSHHost(from title: String) -> String? {
-        let pattern = "(?:ssh\\s+(?:\\w+@)?)([\\w.-]+)"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-              let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)),
-              let range = Range(match.range(at: 1), in: title) else { return nil }
-        return String(title[range])
+        // Everything else goes to AI — it gives much better summaries than
+        // generic labels like "Claude Code session" or "Docker running"
+        return nil
     }
 
     // MARK: - Input Detection
@@ -269,27 +218,30 @@ final class SummaryManager: ObservableObject {
     // MARK: - AI Summary Generation
 
     private func generateAISummaries(
-        batch: [(id: String, wid: Int, tidx: Int, content: String, narrative: String)]
+        batch: [(id: String, wid: Int, tidx: Int, content: String, narrative: String, title: String)]
     ) -> [(String, String)] {
         var prompt = """
-        For each terminal below, give a 1-5 word summary of what the user is working on.
-        Focus on the HIGH-LEVEL task, not the specific command visible.
+        For each terminal below, give a 1-5 word summary of what the user is doing or was doing.
+        Focus on the HIGH-LEVEL task or project, not the specific command.
+        If the terminal shows a Claude Code session, describe what it's working ON, not that it's Claude.
+        If the terminal is idle, describe what was last happening there.
         If history is provided, use it to understand the broader context.
         Reply with ONLY numbered summaries, one per line. No explanations.
 
         """
 
         for (i, item) in batch.enumerated() {
-            prompt += "\n\(i + 1)."
+            prompt += "\n\(i + 1). [Window: \(item.title)]"
             if !item.narrative.isEmpty {
                 prompt += " [History: \(item.narrative)]"
             }
-            // Cap content at 600 chars to keep prompt small
-            prompt += "\n\(String(item.content.suffix(600)))\n"
+            // Send last 800 chars for better context
+            prompt += "\n\(String(item.content.suffix(800)))\n"
         }
 
         guard let response = callClaude(prompt: prompt) else {
-            return batch.map { ($0.id, "Terminal active") }
+            // Fallback: use window titles instead of generic "Terminal active"
+            return batch.map { ($0.id, $0.title) }
         }
 
         // Parse numbered responses
@@ -304,9 +256,9 @@ final class SummaryManager: ObservableObject {
                     .replacingOccurrences(of: "^\\s*\\d+\\.?\\s*", with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespaces)
             } else {
-                raw = "Terminal active"
+                raw = item.title  // Fallback to title, not generic text
             }
-            results.append((item.id, raw.isEmpty ? "Terminal active" : raw))
+            results.append((item.id, raw.isEmpty ? item.title : raw))
         }
 
         return results
