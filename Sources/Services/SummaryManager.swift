@@ -102,10 +102,11 @@ final class SummaryManager: ObservableObject {
                         continue
                     }
 
-                    // 5. Content changed
+                    // 5. Content changed — also check for input prompts
                     ctx.unchangedCount = 0
                     ctx.lastFingerprint = fp
                     ctx.lastChanged = Date()
+                    ctx.statusOverride = self.detectInputWaiting(content: content)
 
                     // 6. Try local heuristic
                     if let local = self.localHeuristic(tab: tab, content: content) {
@@ -227,6 +228,44 @@ final class SummaryManager: ObservableObject {
         return String(title[range])
     }
 
+    // MARK: - Input Detection
+
+    /// Detect if terminal is waiting for human input based on content patterns
+    private func detectInputWaiting(content: String) -> TerminalStatus? {
+        let lines = content.components(separatedBy: "\n")
+        guard let lastLine = lines.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else {
+            return nil
+        }
+        let trimmed = lastLine.trimmingCharacters(in: .whitespaces).lowercased()
+
+        // Interactive prompts: [y/N], (yes/no), Continue?
+        if trimmed.hasSuffix("[y/n]") || trimmed.hasSuffix("[y/n]:") ||
+           trimmed.hasSuffix("(yes/no)") || trimmed.hasSuffix("(yes/no)?") ||
+           trimmed.hasSuffix("continue?") || trimmed.hasSuffix("proceed?") {
+            return .actionRequired
+        }
+
+        // Password/passphrase prompts
+        if trimmed.hasPrefix("password") || trimmed.contains("passphrase") ||
+           trimmed.hasPrefix("enter password") || trimmed.hasPrefix("sudo") {
+            return .actionRequired
+        }
+
+        // REPL prompts waiting for input
+        if trimmed.hasSuffix(">>> ") || trimmed.hasSuffix("... ") ||
+           trimmed.hasSuffix("irb>") || trimmed.hasSuffix("mysql>") ||
+           trimmed.hasSuffix("postgres=>") || trimmed.hasSuffix("sqlite>") {
+            return .actionRequired
+        }
+
+        // Claude Code waiting (prompt character at end)
+        if trimmed.hasSuffix("❯") || trimmed.hasSuffix("❯ ") {
+            return .actionRequired
+        }
+
+        return nil
+    }
+
     // MARK: - AI Summary Generation
 
     private func generateAISummaries(
@@ -326,5 +365,13 @@ final class SummaryManager: ObservableObject {
     func lastActivity(for tabID: String) -> Date? {
         let d = contexts[tabID]?.lastChanged
         return d == .distantPast ? nil : d
+    }
+
+    func statusOverride(for tabID: String) -> TerminalStatus? {
+        contexts[tabID]?.statusOverride
+    }
+
+    func context(for tabID: String) -> TerminalContext? {
+        contexts[tabID]
     }
 }

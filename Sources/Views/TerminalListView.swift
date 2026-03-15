@@ -102,6 +102,7 @@ struct TerminalListView: View {
             tab: tab,
             summary: summaryManager.summary(for: tab.id),
             lastActive: effectiveLastActive(tab.id),
+            context: summaryManager.context(for: tab.id),
             shortcutIndex: globalIdx,
             isSelected: selectedIndex == globalIdx
         ) {
@@ -138,6 +139,7 @@ struct TerminalListView: View {
                     tab: tab,
                     summary: summaryManager.summary(for: tab.id),
                     lastActive: effectiveLastActive(tab.id),
+                    context: summaryManager.context(for: tab.id),
                     shortcutIndex: startIndex + index,
                     isSelected: selectedIndex == startIndex + index
                 ) {
