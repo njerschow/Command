@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- App Sandbox (required for Mac App Store) -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- Network client (for feedback submission and claude -p) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Network server (for future Claude hooks HTTP listener) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- AppleEvents / Automation (to communicate with Terminal.app) -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
+    <!-- Temporary exception: AppleScript access to Terminal.app -->
+    <key>com.apple.security.temporary-exception.apple-events</key>
+    <array>
+        <string>com.apple.Terminal</string>
+        <string>com.googlecode.iterm2</string>
+    </array>
+
+    <!-- User-selected file access (for reading ~/.claude/settings.json) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

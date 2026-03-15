@@ -9,25 +9,29 @@
     <key>CFBundleIdentifier</key>
     <string>com.command.app</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.0.0</string>
     <key>CFBundleExecutable</key>
     <string>Command</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
-    <string></string>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright 2024. All rights reserved.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Command needs accessibility access to read terminal window information.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Command needs automation access to communicate with terminal applications.</string>
+    <string>Command needs automation access to communicate with terminal applications and read their content.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Command needs screen recording access to read terminal window titles.</string>
 </dict>
