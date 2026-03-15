@@ -64,14 +64,29 @@ final class SessionStore: ObservableObject {
                 continue
             }
 
+            // Only save if we have a working directory — without it, restore is useless
+            guard let dir = cachedDirectories[tab.id] else {
+                cachedDirectories.removeValue(forKey: tab.id)
+                cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                continue
+            }
+
+            // For Claude sessions, only save if we have the session ID
+            let claudeSID = cachedClaudeSessionIDs[tab.id]
+            if tab.isClaudeSession && claudeSID == nil {
+                cachedDirectories.removeValue(forKey: tab.id)
+                cachedClaudeSessionIDs.removeValue(forKey: tab.id)
+                continue
+            }
+
             let session = SavedSession(
                 tabID: tab.id,
                 title: tab.title,
                 summary: summaryFor(tab.id) ?? tab.title,
-                workingDirectory: cachedDirectories[tab.id],
+                workingDirectory: dir,
                 app: group.app.rawValue,
                 wasClaudeSession: tab.isClaudeSession,
-                claudeSessionID: cachedClaudeSessionIDs[tab.id],
+                claudeSessionID: claudeSID,
                 closedAt: Date()
             )
             recentlyClosed.insert(session, at: 0)
@@ -99,11 +114,23 @@ final class SessionStore: ObservableObject {
             if let dir { cachedDirectories[tab.id] = dir }
         }
 
+        // Don't save without a directory — restore would be useless
+        guard let dir else {
+            closeTerminalWindow(app: group.app, windowID: group.windowID)
+            return
+        }
+
         // Resolve Claude session ID NOW
         var claudeSID = cachedClaudeSessionIDs[tab.id]
-        if claudeSID == nil, tab.isClaudeSession, let dir, let hookServer {
+        if claudeSID == nil, tab.isClaudeSession, let hookServer {
             claudeSID = hookServer.sessionID(forCwd: dir)
             if let claudeSID { cachedClaudeSessionIDs[tab.id] = claudeSID }
+        }
+
+        // For Claude sessions, require session ID
+        if tab.isClaudeSession && claudeSID == nil {
+            closeTerminalWindow(app: group.app, windowID: group.windowID)
+            return
         }
 
         let session = SavedSession(
@@ -161,16 +188,15 @@ final class SessionStore: ObservableObject {
     // MARK: - Restore
 
     func restore(_ session: SavedSession) {
-        let dir = session.workingDirectory ?? NSHomeDirectory()
+        // Require working directory — should always be present since we don't save without it
+        guard let dir = session.workingDirectory else { return }
         let escapedDir = dir.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
 
         let command: String
         if session.wasClaudeSession {
-            if let sid = session.claudeSessionID {
-                command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
-            } else {
-                command = "cd \\\"\(escapedDir)\\\" && claude --continue"
-            }
+            // Require session ID — should always be present since we don't save Claude sessions without it
+            guard let sid = session.claudeSessionID else { return }
+            command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
         } else {
             command = "cd \\\"\(escapedDir)\\\" && clear"
         }
