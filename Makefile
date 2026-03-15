@@ -19,6 +19,7 @@ app: build
 	@mkdir -p build/Command.app/Contents/Resources
 	@cp .build/release/Command build/Command.app/Contents/MacOS/
 	@cp Info.plist build/Command.app/Contents/
+	@cp Resources/AppIcon.icns build/Command.app/Contents/Resources/ 2>/dev/null || true
 	@echo "Built build/Command.app"
 
 # Create distributable zip
