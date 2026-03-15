@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let scanner = TerminalScanner()
     private let summaryManager = SummaryManager()
     private let sessionStore = SessionStore()
+    private let hookServer = ClaudeHookServer()
     private let hotkeyManager = HotkeyManager()
     private var cancellables = Set<AnyCancellable>()
 
@@ -22,9 +23,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupHotkey()
         startScanning()
         summaryManager.start(appState: appState)
+        hookServer.start()
 
-        // Update badge when terminal state changes
+        // Update badge when terminal state or hook state changes
         appState.$terminalGroups
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.updateBadge() }
+            .store(in: &cancellables)
+
+        hookServer.$sessions
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.updateBadge() }
             .store(in: &cancellables)
@@ -33,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         scanner.stopPolling()
         summaryManager.stop()
+        hookServer.stop()
         hotkeyManager.unregister()
     }
 
@@ -93,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func updateBadge() {
         guard let button = statusItem?.button else { return }
 
-        if appState.hasActionRequired {
+        if appState.hasActionRequired || hookServer.hasActionRequired {
             button.image = NSImage(
                 systemSymbolName: "terminal.fill",
                 accessibilityDescription: "Command — action required"
@@ -118,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(appState)
             .environmentObject(summaryManager)
             .environmentObject(sessionStore)
+            .environmentObject(hookServer)
 
         let hosting = NSHostingController(rootView: contentView)
         hosting.sizingOptions = .preferredContentSize
