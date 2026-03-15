@@ -23,6 +23,9 @@ struct TerminalListView: View {
         .frame(width: 320)
         .fixedSize(horizontal: true, vertical: true)
         .background(keyboardHandler)
+        .onChange(of: appState.allTabs.count) { _, _ in
+            selectedIndex = nil
+        }
         .popover(isPresented: $showHistory, arrowEdge: .bottom) {
             SessionHistoryView(
                 sessions: sessionStore.closedHistory,

@@ -88,17 +88,24 @@ struct UpdatePopoverView: View {
         .frame(width: 300)
     }
 
-    /// Best guess at where the repo is cloned locally
+    /// Detect repo path from app bundle location or common locations
     private var repoPath: String {
-        // Use the app bundle's grandparent: build/Command.app → build → repo root
+        // Try app bundle's grandparent: build/Command.app → build → repo root
         let bundlePath = Bundle.main.bundlePath
         let buildDir = (bundlePath as NSString).deletingLastPathComponent
         let repoDir = (buildDir as NSString).deletingLastPathComponent
-        // Sanity check: if Package.swift exists there, it's the repo
         if FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent("Package.swift")) {
             return repoDir
         }
-        return "~/Command"
+        // Check common locations
+        let home = NSHomeDirectory()
+        for candidate in ["Command", "Documents/Command", "Documents/random/Command", "Projects/Command", "Developer/Command"] {
+            let path = (home as NSString).appendingPathComponent(candidate)
+            if FileManager.default.fileExists(atPath: (path as NSString).appendingPathComponent("Package.swift")) {
+                return path
+            }
+        }
+        return "<path-to-Command>"
     }
 
     private func copyToClipboard(_ text: String) {

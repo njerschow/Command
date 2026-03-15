@@ -302,7 +302,7 @@ final class SessionStore: ObservableObject {
             tell application "Terminal"
                 repeat with w in windows
                     if id of w is \(windowID) then
-                        close w
+                        close w saving no
                         return
                     end if
                 end repeat
@@ -351,18 +351,52 @@ final class SessionStore: ObservableObject {
             appName = "Terminal"
         }
 
-        // Build restore script — optionally set window bounds
-        var setBounds = ""
+        // Build restore script — optionally set window bounds on the correct window
+        let boundsLiteral: String
         if let frame = session.windowFrame {
-            setBounds = "\n            set bounds of window 1 to {\(frame.x), \(frame.y), \(frame.x + frame.width), \(frame.y + frame.height)}"
+            boundsLiteral = "{\(frame.x), \(frame.y), \(frame.x + frame.width), \(frame.y + frame.height)}"
+        } else {
+            boundsLiteral = ""
         }
 
-        let script = """
-        tell application "\(appName)"
-            activate
-            do script "\(command)"\(setBounds)
-        end tell
-        """
+        let script: String
+        if appName == "iTerm2" {
+            // iTerm2: create window with default profile makes the new window frontmost (window 1)
+            if boundsLiteral.isEmpty {
+                script = """
+                tell application "iTerm2"
+                    activate
+                    create window with default profile command "\(command)"
+                end tell
+                """
+            } else {
+                script = """
+                tell application "iTerm2"
+                    activate
+                    create window with default profile command "\(command)"
+                    set bounds of window 1 to \(boundsLiteral)
+                end tell
+                """
+            }
+        } else {
+            // Terminal.app: do script returns a tab reference; use it to target the correct window
+            if boundsLiteral.isEmpty {
+                script = """
+                tell application "\(appName)"
+                    activate
+                    do script "\(command)"
+                end tell
+                """
+            } else {
+                script = """
+                tell application "\(appName)"
+                    activate
+                    set newTab to do script "\(command)"
+                    set bounds of window of newTab to \(boundsLiteral)
+                end tell
+                """
+            }
+        }
         let appleScript = NSAppleScript(source: script)
         var error: NSDictionary?
         appleScript?.executeAndReturnError(&error)

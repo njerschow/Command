@@ -5,6 +5,7 @@ import Foundation
 final class ITermAdapter {
 
     private static let delimiter = "|||"
+    private let processResolver = ProcessResolver()
     private var hasLoggedPermissionError = false
 
     func scan() -> [TerminalGroup] {
@@ -69,7 +70,8 @@ final class ITermAdapter {
             let isProcessing = parts[4].trimmingCharacters(in: .whitespaces) == "true"
             let sessionName = parts[5].trimmingCharacters(in: .whitespaces)
 
-            let status: TerminalStatus = isProcessing ? .running : .idle
+            let processes = tty.isEmpty ? [] : processResolver.allProcessNames(tty: tty)
+            let status = determineStatus(isProcessing: isProcessing, processes: processes)
             let title = sessionName.isEmpty ? simplifyTitle(winName) : sessionName
 
             let tab = TerminalTab(
@@ -78,7 +80,7 @@ final class ITermAdapter {
                 status: status,
                 tty: tty,
                 tabIndex: tabIndex - 1,
-                processes: []  // iTerm2 AppleScript doesn't expose process list
+                processes: processes
             )
 
             let key = "iterm-\(winID)"
@@ -97,6 +99,24 @@ final class ITermAdapter {
         }
 
         return windowOrder.compactMap { windowMap[$0] }
+    }
+
+    private func determineStatus(isProcessing: Bool, processes: [String]) -> TerminalStatus {
+        let hasClaude = processes.contains { $0.contains("claude") }
+
+        // Claude running but session not processing = Claude finished, waiting for user
+        if hasClaude && !isProcessing {
+            return .actionRequired
+        }
+
+        // If the only processes are login shell + shell, it's idle
+        let shellProcesses = Set(["login", "-zsh", "zsh", "-bash", "bash", "fish", "-fish"])
+        let nonShellProcesses = processes.filter { !shellProcesses.contains($0) && !$0.isEmpty }
+        if nonShellProcesses.isEmpty {
+            return .idle
+        }
+
+        return .running
     }
 
     private func simplifyTitle(_ title: String) -> String {

@@ -8,11 +8,14 @@ final class SessionSearcher: ObservableObject {
     @Published var isAISearching = false
 
     private var aiTask: Process?
+    private let aiTaskLock = NSLock()
     private var debounceTimer: Timer?
 
     deinit {
         debounceTimer?.invalidate()
+        aiTaskLock.lock()
         aiTask?.terminate()
+        aiTaskLock.unlock()
     }
 
     struct ScoredSession: Identifiable {
@@ -108,8 +111,10 @@ final class SessionSearcher: ObservableObject {
     func cancelAISearch() {
         debounceTimer?.invalidate()
         debounceTimer = nil
+        aiTaskLock.lock()
         aiTask?.terminate()
         aiTask = nil
+        aiTaskLock.unlock()
         isAISearching = false
     }
 
@@ -186,7 +191,9 @@ final class SessionSearcher: ObservableObject {
 
         do {
             try process.run()
+            aiTaskLock.lock()
             self.aiTask = process
+            aiTaskLock.unlock()
             inputPipe.fileHandleForWriting.write(Data(prompt.utf8))
             inputPipe.fileHandleForWriting.closeFile()
 
@@ -204,11 +211,15 @@ final class SessionSearcher: ObservableObject {
             DispatchQueue.global().async { process.waitUntilExit(); exitGroup.leave() }
             if exitGroup.wait(timeout: .now() + 30) == .timedOut {
                 process.terminate()
+                aiTaskLock.lock()
                 self.aiTask = nil
+                aiTaskLock.unlock()
                 return nil
             }
 
+            aiTaskLock.lock()
             self.aiTask = nil
+            aiTaskLock.unlock()
             readGroup.wait()
             let text = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -218,7 +229,9 @@ final class SessionSearcher: ObservableObject {
             }
             return text?.isEmpty == true ? nil : text
         } catch {
+            aiTaskLock.lock()
             self.aiTask = nil
+            aiTaskLock.unlock()
             return nil
         }
     }

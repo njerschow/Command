@@ -35,6 +35,19 @@ final class ProcessResolver {
             ?? processes.first { $0.isForeground }
     }
 
+    /// Get all process names for a specific TTY (similar to Terminal.app's `processes of tab`)
+    func allProcessNames(tty: String) -> [String] {
+        let ttyShort = tty.replacingOccurrences(of: "/dev/", with: "")
+        guard !ttyShort.isEmpty,
+              let output = shell("ps -t \(ttyShort) -o comm=") else {
+            return []
+        }
+        return output.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { ($0 as NSString).lastPathComponent }
+    }
+
     /// Check if a TTY has an idle shell (no foreground non-shell process)
     func isIdle(tty: String) -> Bool {
         guard let fg = foregroundProcess(tty: tty) else { return true }
