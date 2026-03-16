@@ -106,15 +106,12 @@ struct UpdatePopoverView: View {
     }
 
     /// Detect repo path from app bundle location
+    /// No filesystem access — avoids TCC prompts when app is in ~/Documents
     private var repoPath: String {
         // App bundle's grandparent: build/Command.app → build → repo root
         let bundlePath = Bundle.main.bundlePath
         let buildDir = (bundlePath as NSString).deletingLastPathComponent
-        let repoDir = (buildDir as NSString).deletingLastPathComponent
-        if FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent("Package.swift")) {
-            return repoDir
-        }
-        return "<path-to-Command>"
+        return (buildDir as NSString).deletingLastPathComponent
     }
 
     private func copyToClipboard(_ text: String) {
