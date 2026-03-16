@@ -80,12 +80,16 @@ final class ClaudeHookServerTests: XCTestCase {
         XCTAssertEqual(server.sessions["test-session"]?.lastEvent, "Session started")
     }
 
-    func testPostToolUseSetsWorking() {
+    func testPostToolUseIgnored() {
+        // PostToolUse is not a registered hook event — should be treated as unknown
         server.processEvent(event("Stop"))
+        flushMainQueue()
+        XCTAssertEqual(server.sessions["test-session"]?.state, .waitingForUser)
+
         server.processEvent(event("PostToolUse"))
         flushMainQueue()
-
-        XCTAssertEqual(server.sessions["test-session"]?.state, .working)
+        // State should NOT change — unknown events are rejected
+        XCTAssertEqual(server.sessions["test-session"]?.state, .waitingForUser)
     }
 
     func testSessionEndRemovesSession() {
@@ -301,10 +305,22 @@ final class ClaudeHookServerTests: XCTestCase {
         // This is acceptable — the session just won't match anything
     }
 
-    func testUnknownEventNameHandledGracefully() {
+    func testUnknownEventNameRejected() {
         server.processEvent(event("SomeNewEvent"))
         flushMainQueue()
-        // Should create session but not crash — default case in switch
+        // Unknown events are rejected — no session created, isFileDiscovered not cleared
+        XCTAssertNil(server.sessions["test-session"])
+    }
+
+    func testUnknownEventDoesNotClearFileDiscovered() {
+        // First register a known event to create the session
+        server.processEvent(event("PreToolUse"))
+        flushMainQueue()
+        XCTAssertNotNil(server.sessions["test-session"])
+
+        // Sending an unknown event should not modify the session
+        server.processEvent(event("SomeNewEvent"))
+        flushMainQueue()
         XCTAssertNotNil(server.sessions["test-session"])
     }
 

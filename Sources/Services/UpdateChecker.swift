@@ -26,6 +26,8 @@ final class UpdateChecker: ObservableObject {
     }
 
     /// Check GitHub API for latest release (rate-limited to once per hour)
+    /// If the latest release has no media (video/image), scans recent releases
+    /// for one newer than the current version that does have media.
     func checkForUpdates(force: Bool = false) {
         guard force || Date().timeIntervalSince(lastCheckTime) > checkInterval else { return }
         lastCheckTime = Date()
@@ -65,6 +67,50 @@ final class UpdateChecker: ObservableObject {
                 self.releaseVideoURL = videoURL
                 self.releaseImageURL = imageURL
                 self.downloadURL = zipURL
+            }
+
+            // If latest release has no media, scan older releases for one with media
+            if videoURL == nil && imageURL == nil && isNewer {
+                self.fetchMediaFromRecentReleases()
+            }
+        }.resume()
+    }
+
+    /// Scan recent releases for media (video/image) from a version newer than current
+    private func fetchMediaFromRecentReleases() {
+        let urlString = "https://api.github.com/repos/\(repo)/releases?per_page=10"
+        guard let url = URL(string: urlString) else { return }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 10
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            guard let self,
+                  let data,
+                  let releases = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                return
+            }
+
+            // Walk releases (newest first), find the first one newer than current with media
+            for release in releases {
+                guard let tag = release["tag_name"] as? String else { continue }
+                let version = tag.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+
+                // Must be newer than current version
+                guard Self.compareVersions(remote: version, local: self.currentVersion) else { continue }
+
+                guard let body = release["body"] as? String else { continue }
+                let video = Self.extractVideoURL(from: body)
+                let image = Self.extractImageURL(from: body)
+
+                if video != nil || image != nil {
+                    DispatchQueue.main.async {
+                        if self.releaseVideoURL == nil { self.releaseVideoURL = video }
+                        if self.releaseImageURL == nil { self.releaseImageURL = image }
+                    }
+                    return
+                }
             }
         }.resume()
     }

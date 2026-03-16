@@ -237,9 +237,6 @@ final class ClaudeHookServer: ObservableObject {
                 session.lastEvent = "Using \(toolName)"
             }
 
-        case "PostToolUse":
-            session.state = .working
-
         case "SessionStart":
             session.state = .working
             session.lastEvent = "Session started"
@@ -252,7 +249,9 @@ final class ClaudeHookServer: ObservableObject {
             return
 
         default:
-            break
+            // Unknown event — don't clear isFileDiscovered or update session
+            lock.unlock()
+            return
         }
 
         session.cwd = cwd
