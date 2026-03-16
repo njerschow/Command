@@ -105,22 +105,14 @@ struct UpdatePopoverView: View {
         .frame(width: 300)
     }
 
-    /// Detect repo path from app bundle location or common locations
+    /// Detect repo path from app bundle location
     private var repoPath: String {
-        // Try app bundle's grandparent: build/Command.app → build → repo root
+        // App bundle's grandparent: build/Command.app → build → repo root
         let bundlePath = Bundle.main.bundlePath
         let buildDir = (bundlePath as NSString).deletingLastPathComponent
         let repoDir = (buildDir as NSString).deletingLastPathComponent
         if FileManager.default.fileExists(atPath: (repoDir as NSString).appendingPathComponent("Package.swift")) {
             return repoDir
-        }
-        // Check common locations
-        let home = NSHomeDirectory()
-        for candidate in ["Command", "Documents/Command", "Documents/random/Command", "Projects/Command", "Developer/Command"] {
-            let path = (home as NSString).appendingPathComponent(candidate)
-            if FileManager.default.fileExists(atPath: (path as NSString).appendingPathComponent("Package.swift")) {
-                return path
-            }
         }
         return "<path-to-Command>"
     }
