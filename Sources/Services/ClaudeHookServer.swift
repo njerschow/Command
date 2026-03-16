@@ -345,13 +345,16 @@ final class ClaudeHookServer: ObservableObject {
 
     // MARK: - Query
 
-    /// Normalize path for comparison (strip trailing slash, resolve symlinks)
+    /// Normalize path for comparison (strip trailing slash, expand /private prefix)
+    /// Does NOT resolve symlinks to avoid triggering macOS TCC prompts
     private func normalizePath(_ path: String) -> String {
         var p = path
         while p.hasSuffix("/") && p.count > 1 { p.removeLast() }
-        // Resolve symlinks (e.g. /private/tmp vs /tmp) for consistent matching
-        let url = URL(fileURLWithPath: p).resolvingSymlinksInPath()
-        return url.path
+        // Handle macOS /tmp → /private/tmp equivalence without filesystem access
+        if p == "/tmp" || p.hasPrefix("/tmp/") {
+            p = "/private" + p
+        }
+        return p
     }
 
     /// Find the most recent Claude session for a given working directory
