@@ -23,12 +23,29 @@ struct UpdatePopoverView: View {
 
             Divider()
 
-            // Video preview if available
+            // Media preview: video takes priority, then image
             if let videoURLString = updateChecker.releaseVideoURL,
                let videoURL = URL(string: videoURLString) {
                 VideoPlayerView(url: videoURL)
                     .frame(height: 180)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else if let imageURLString = updateChecker.releaseImageURL,
+                      let imageURL = URL(string: imageURLString) {
+                AsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    case .failure:
+                        EmptyView()
+                    default:
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .frame(maxHeight: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
             // Release notes
@@ -113,15 +130,18 @@ struct UpdatePopoverView: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// Remove video embeds from release notes so we don't show them twice
+    /// Remove video/image embeds from release notes so we don't show them twice
     static func stripVideoMarkdown(_ text: String) -> String {
         var lines = text.components(separatedBy: "\n")
         lines = lines.filter { line in
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.hasPrefix("<video") && t.contains("</video>") { return false }
             if t.hasPrefix("<video") || t == "</video>" { return false }
+            if t.hasPrefix("<img") { return false }
             if (t.hasSuffix(".mp4") || t.hasSuffix(".mov")) && t.hasPrefix("http") { return false }
             if t.range(of: #"!\[[^\]]*\]\([^)]+\.(?:mp4|mov)\)"#, options: .regularExpression) != nil { return false }
+            if t.range(of: #"!\[[^\]]*\]\([^)]+\.(?:png|jpe?g|gif|webp)\)"#, options: .regularExpression) != nil { return false }
+            if t.range(of: #"!\[[^\]]*\]\(https://[^)]*user-images[^)]+\)"#, options: .regularExpression) != nil { return false }
             return true
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)

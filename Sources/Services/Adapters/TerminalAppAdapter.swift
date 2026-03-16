@@ -80,8 +80,10 @@ final class TerminalAppAdapter {
             let status = determineStatus(busy: busy, processes: processes)
             let displayTitle = simplifyTitle(winName)
 
+            // Use TTY in tab ID for stability (positional index shifts when tabs close/reorder)
+            let ttyID = tty.isEmpty ? "\(tabIndex)" : tty.replacingOccurrences(of: "/dev/", with: "")
             let tab = TerminalTab(
-                id: "terminal-\(winID)-\(tabIndex)",
+                id: "terminal-\(winID)-\(ttyID)",
                 title: displayTitle,
                 status: status,
                 tty: tty,

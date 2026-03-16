@@ -195,7 +195,7 @@ final class SummaryManager: ObservableObject {
     private func callClaude(prompt: String) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "CLAUDECODE= claude -p --model haiku"]
+        process.arguments = ["-lc", "CLAUDECODE= claude -p --model haiku --no-session-persistence"]
 
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
@@ -227,7 +227,6 @@ final class SummaryManager: ObservableObject {
             DispatchQueue.global().async { process.waitUntilExit(); exitGroup.leave() }
             if exitGroup.wait(timeout: .now() + 30) == .timedOut {
                 process.terminate()
-                print("[SummaryManager] claude timed out")
                 return nil
             }
 
@@ -235,7 +234,6 @@ final class SummaryManager: ObservableObject {
             let text = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
             return text?.isEmpty == true ? nil : text
         } catch {
-            print("[SummaryManager] claude error: \(error)")
             return nil
         }
     }

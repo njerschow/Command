@@ -19,8 +19,8 @@ final class SessionStore: ObservableObject {
     private var explicitlySaved: [String: Date] = [:]
     /// Session IDs that have been restored (shown as active/green)
     @Published private(set) var restoredSessionIDs: Set<String> = []
-    /// Tab IDs that have been bookmarked via Save (still open)
-    private var savedTabIDs: Set<String> = []
+    /// Tab IDs that have been bookmarked via Save (still open, hidden from active list)
+    @Published private(set) var savedTabIDs: Set<String> = []
 
     private let maxSaved = 20
     private let maxHistory = 50
@@ -53,7 +53,13 @@ final class SessionStore: ObservableObject {
     func cacheClaudeSessionID(_ sessionID: String?, for tabID: String) {
         if let sessionID, !sessionID.isEmpty {
             cachedClaudeSessionIDs[tabID] = sessionID
+        } else {
+            cachedClaudeSessionIDs.removeValue(forKey: tabID)
         }
+    }
+
+    func cachedClaudeSessionID(for tabID: String) -> String? {
+        cachedClaudeSessionIDs[tabID]
     }
 
     // MARK: - Content Cache
@@ -100,15 +106,18 @@ final class SessionStore: ObservableObject {
 
     // MARK: - Track Closed Tabs (History only)
 
+    /// Returns Claude session IDs that were on closed tabs (so caller can clean up hook server)
+    @discardableResult
     func trackClosed(
         current: [TerminalGroup],
         previous: [TerminalGroup],
         summaryFor: (String) -> String?
-    ) {
+    ) -> [String] {
         let currentIDs = Set(current.flatMap { $0.tabs }.map { $0.id })
         let previousTabs = previous.flatMap { g in g.tabs.map { (g, $0) } }
 
         var changed = false
+        var closedClaudeSessionIDs: [String] = []
         for (group, tab) in previousTabs where !currentIDs.contains(tab.id) {
             // Skip if already saved via explicit Save & Close (within 30s)
             if let savedAt = explicitlySaved.removeValue(forKey: tab.id),
@@ -158,7 +167,15 @@ final class SessionStore: ObservableObject {
             changed = true
 
             // Remove from saved tab tracking
+            if savedTabIDs.contains(tab.id) {
+                Log.info("trackClosed: removing tab=\(tab.id) from savedTabIDs (terminal closed)", category: "save")
+            }
             savedTabIDs.remove(tab.id)
+
+            // Collect Claude session IDs from closed tabs for hook server cleanup
+            if let sid = cachedClaudeSessionIDs[tab.id] {
+                closedClaudeSessionIDs.append(sid)
+            }
 
             cachedDirectories.removeValue(forKey: tab.id)
             cachedClaudeSessionIDs.removeValue(forKey: tab.id)
@@ -172,30 +189,54 @@ final class SessionStore: ObservableObject {
             }
             save()
         }
+        return closedClaudeSessionIDs
     }
 
     // MARK: - Save (bookmark without closing)
 
     func saveSession(group: TerminalGroup, tab: TerminalTab, summary: String?,
                      contentReader: ContentReader? = nil, hookServer: ClaudeHookServer? = nil) {
+        Log.info("saveSession: tab=\(tab.id) title=\(tab.title) isClaude=\(tab.isClaudeSession) window=\(group.windowID)", category: "save")
         // Don't save duplicates
-        guard !savedTabIDs.contains(tab.id) else { return }
-
-        // Resolve directory
-        var dir = cachedDirectories[tab.id]
-        if dir == nil, let contentReader {
-            dir = contentReader.workingDirectory(tty: tab.tty)
-            if let dir { cachedDirectories[tab.id] = dir }
+        guard !savedTabIDs.contains(tab.id) else {
+            Log.info("saveSession: SKIPPED — already saved (tab=\(tab.id))", category: "save")
+            return
         }
-        guard let dir else { return }
 
-        // Resolve Claude session ID
-        var claudeSID = cachedClaudeSessionIDs[tab.id]
-        if claudeSID == nil, tab.isClaudeSession, let hookServer {
+        // Only Claude sessions can be saved
+        guard tab.isClaudeSession else {
+            Log.error("saveSession: ABORTED — not a Claude session (tab=\(tab.id))", category: "save")
+            return
+        }
+
+        // Authoritative fresh lookup at save time (TTY→PID→CWD and TTY→PID→session)
+        // No cache fallback — if we can't get fresh data, refuse to save
+        guard let contentReader, let lookup = contentReader.authoritativeLookup(
+            tty: tab.tty, isClaudeSession: true
+        ) else {
+            Log.error("saveSession: ABORTED — authoritative lookup failed (tab=\(tab.id) tty=\(tab.tty ?? "nil"))", category: "save")
+            return
+        }
+
+        let dir = lookup.dir
+        var claudeSID = lookup.sessionID
+
+        // If --resume/file discovery didn't find session ID, try hook server with the FRESH dir
+        if claudeSID == nil, let hookServer {
             claudeSID = hookServer.sessionID(forCwd: dir)
-            if let claudeSID { cachedClaudeSessionIDs[tab.id] = claudeSID }
+            if let claudeSID {
+                Log.info("saveSession: hook server matched sid=\(claudeSID.prefix(8)) for fresh dir=\(dir)", category: "save")
+            }
         }
-        if tab.isClaudeSession && claudeSID == nil { return }
+
+        guard let claudeSID else {
+            Log.error("saveSession: ABORTED — no session ID found (tab=\(tab.id) dir=\(dir))", category: "save")
+            return
+        }
+
+        cachedDirectories[tab.id] = dir
+        cachedClaudeSessionIDs[tab.id] = claudeSID
+        Log.info("saveSession: authoritative dir=\(dir) sid=\(claudeSID.prefix(8))", category: "save")
 
         let frame = cachedWindowFrames[tab.id]
         let content = cachedContent[tab.id]
@@ -218,6 +259,7 @@ final class SessionStore: ObservableObject {
         if savedSessions.count > maxSaved {
             savedSessions = Array(savedSessions.prefix(maxSaved))
         }
+        Log.info("saveSession: SAVED id=\(session.id.prefix(8)) dir=\(dir) claudeSID=\(claudeSID ?? "nil") frame=\(frame != nil)", category: "save")
         save()
     }
 
@@ -225,35 +267,37 @@ final class SessionStore: ObservableObject {
 
     func saveAndClose(group: TerminalGroup, tab: TerminalTab, summary: String?,
                       contentReader: ContentReader? = nil, hookServer: ClaudeHookServer? = nil) {
-        // Resolve directory NOW (in case cache hasn't populated yet)
-        var dir = cachedDirectories[tab.id]
-        if dir == nil, let contentReader {
-            dir = contentReader.workingDirectory(tty: tab.tty)
-            if let dir { cachedDirectories[tab.id] = dir }
-        }
-
-        // Don't save without a directory — restore would be useless
-        guard let dir else {
+        // Only Claude sessions can be saved
+        guard tab.isClaudeSession else {
             closeTerminalWindow(app: group.app, windowID: group.windowID)
             return
         }
 
-        // Resolve Claude session ID NOW
-        var claudeSID = cachedClaudeSessionIDs[tab.id]
-        if claudeSID == nil, tab.isClaudeSession, let hookServer {
+        // Authoritative fresh lookup — no cache fallback
+        guard let contentReader, let lookup = contentReader.authoritativeLookup(
+            tty: tab.tty, isClaudeSession: true
+        ) else {
+            closeTerminalWindow(app: group.app, windowID: group.windowID)
+            return
+        }
+
+        let dir = lookup.dir
+        var claudeSID = lookup.sessionID
+        if claudeSID == nil, let hookServer {
             claudeSID = hookServer.sessionID(forCwd: dir)
-            if let claudeSID { cachedClaudeSessionIDs[tab.id] = claudeSID }
         }
 
-        // For Claude sessions, require session ID
-        if tab.isClaudeSession && claudeSID == nil {
+        guard let claudeSID else {
             closeTerminalWindow(app: group.app, windowID: group.windowID)
             return
         }
+
+        cachedDirectories[tab.id] = dir
+        cachedClaudeSessionIDs[tab.id] = claudeSID
 
         // Capture window frame and content before closing
         let frame = SessionStore.captureWindowFrame(app: group.app, windowID: group.windowID)
-        let content = contentReader?.readHistory(windowID: group.windowID, tabIndex: tab.tabIndex, app: group.app, lineCount: 500)
+        let content = contentReader.readHistory(windowID: group.windowID, tabIndex: tab.tabIndex, app: group.app, lineCount: 500)
             ?? cachedContent[tab.id]
 
         // Remove any existing "Save" bookmark for this tab
@@ -318,8 +362,12 @@ final class SessionStore: ObservableObject {
     // MARK: - Restore
 
     func restore(_ session: SavedSession) {
+        Log.info("restore: id=\(session.id.prefix(8)) summary=\(session.summary) claude=\(session.wasClaudeSession) sid=\(session.claudeSessionID ?? "nil") dir=\(session.workingDirectory ?? "nil") app=\(session.app) frame=\(session.windowFrame != nil)", category: "restore")
         // Require working directory — should always be present since we don't save without it
-        guard let dir = session.workingDirectory else { return }
+        guard let dir = session.workingDirectory else {
+            Log.error("restore: ABORTED — no working directory", category: "restore")
+            return
+        }
         let escapedDir = dir
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -329,18 +377,22 @@ final class SessionStore: ObservableObject {
         let command: String
         if session.wasClaudeSession {
             // Require session ID — should always be present since we don't save Claude sessions without it
-            guard let sid = session.claudeSessionID else { return }
+            guard let sid = session.claudeSessionID else {
+                Log.error("restore: ABORTED — Claude session but no session ID", category: "restore")
+                return
+            }
             // Validate session ID contains only safe characters to prevent command injection
             let isSafeSID = sid.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
             if isSafeSID && !sid.isEmpty {
                 command = "cd \\\"\(escapedDir)\\\" && claude --resume \(sid)"
             } else {
-                // Unsafe session ID — restore directory only, skip --resume
+                Log.error("restore: unsafe session ID '\(sid)', restoring without --resume", category: "restore")
                 command = "cd \\\"\(escapedDir)\\\" && claude"
             }
         } else {
             command = "cd \\\"\(escapedDir)\\\" && clear"
         }
+        Log.info("restore: command=\(command)", category: "restore")
 
         // Use the correct terminal app
         let appName: String
@@ -379,7 +431,8 @@ final class SessionStore: ObservableObject {
                 """
             }
         } else {
-            // Terminal.app: do script returns a tab reference; use it to target the correct window
+            // Terminal.app: "do script" returns a tab reference with a unique TTY.
+            // We use that TTY to find the parent window reliably (avoids "front window" race).
             if boundsLiteral.isEmpty {
                 script = """
                 tell application "\(appName)"
@@ -392,31 +445,50 @@ final class SessionStore: ObservableObject {
                 tell application "\(appName)"
                     activate
                     set newTab to do script "\(command)"
-                    set bounds of window of newTab to \(boundsLiteral)
+                    set targetTTY to tty of newTab
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            if tty of t is targetTTY then
+                                set bounds of w to \(boundsLiteral)
+                                return
+                            end if
+                        end repeat
+                    end repeat
                 end tell
                 """
             }
         }
+        Log.info("restore: running AppleScript for \(appName)...", category: "restore")
         let appleScript = NSAppleScript(source: script)
         var error: NSDictionary?
-        appleScript?.executeAndReturnError(&error)
+        let result = appleScript?.executeAndReturnError(&error)
         if let error {
-            print("[SessionStore] restore error: \(error)")
+            Log.error("restore: AppleScript FAILED — \(error)", category: "restore")
             return
         }
+        Log.info("restore: AppleScript succeeded, result=\(result?.stringValue ?? "nil")", category: "restore")
 
         restoredSessionIDs.insert(session.id)
         save()
     }
 
     func dismissSaved(_ session: SavedSession) {
+        Log.info("dismissSaved: id=\(session.id.prefix(8)) tabID=\(session.tabID) summary=\(session.summary)", category: "save")
         savedSessions.removeAll { $0.id == session.id }
+        savedTabIDs.remove(session.tabID)
         restoredSessionIDs.remove(session.id)
         save()
     }
 
     func dismissHistory(_ session: SavedSession) {
         closedHistory.removeAll { $0.id == session.id }
+        save()
+    }
+
+    /// Rename a saved session
+    func renameSaved(_ session: SavedSession, to newName: String) {
+        guard let idx = savedSessions.firstIndex(where: { $0.id == session.id }) else { return }
+        savedSessions[idx] = savedSessions[idx].renamed(to: newName)
         save()
     }
 
@@ -444,6 +516,7 @@ final class SessionStore: ObservableObject {
 
     func clearSaved() {
         savedSessions.removeAll()
+        savedTabIDs.removeAll()
         restoredSessionIDs.removeAll()
         save()
     }
@@ -539,7 +612,7 @@ struct SavedSession: Identifiable, Codable {
     let id: String
     let tabID: String
     let title: String
-    let summary: String
+    var summary: String
     let workingDirectory: String?
     let app: String
     let wasClaudeSession: Bool
@@ -567,5 +640,12 @@ struct SavedSession: Identifiable, Codable {
     /// Effective tag — falls back to "claude"/"term" for sessions saved before tags existed
     var effectiveTag: String {
         sessionTag ?? (wasClaudeSession ? "claude" : "term")
+    }
+
+    /// Return a copy with a new summary (for renaming)
+    func renamed(to newSummary: String) -> SavedSession {
+        var copy = self
+        copy.summary = newSummary
+        return copy
     }
 }

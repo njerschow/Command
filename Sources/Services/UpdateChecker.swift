@@ -7,6 +7,7 @@ final class UpdateChecker: ObservableObject {
     @Published var releaseURL: String?
     @Published var releaseNotes: String?
     @Published var releaseVideoURL: String?
+    @Published var releaseImageURL: String?
     @Published var downloadURL: String?
 
     private let repo: String
@@ -49,6 +50,7 @@ final class UpdateChecker: ObservableObject {
             let isNewer = Self.compareVersions(remote: remoteVersion, local: self.currentVersion)
             let body = json["body"] as? String
             let videoURL = body.flatMap { Self.extractVideoURL(from: $0) }
+            let imageURL = body.flatMap { Self.extractImageURL(from: $0) }
 
             // Find .zip asset download URL
             let assets = json["assets"] as? [[String: Any]] ?? []
@@ -61,6 +63,7 @@ final class UpdateChecker: ObservableObject {
                 self.updateAvailable = isNewer
                 self.releaseNotes = body
                 self.releaseVideoURL = videoURL
+                self.releaseImageURL = imageURL
                 self.downloadURL = zipURL
             }
         }.resume()
@@ -91,6 +94,32 @@ final class UpdateChecker: ObservableObject {
             if let urlStart = match.firstIndex(of: "("), let urlEnd = match.lastIndex(of: ")") {
                 let url = String(match[match.index(after: urlStart)..<urlEnd])
                 return url
+            }
+        }
+        return nil
+    }
+
+    /// Extract first image URL from markdown release notes
+    static func extractImageURL(from markdown: String) -> String? {
+        // ![alt](url.png/jpg/gif/webp)
+        if let range = markdown.range(of: #"!\[[^\]]*\]\(([^)]+\.(?:png|jpe?g|gif|webp))\)"#, options: .regularExpression) {
+            let match = String(markdown[range])
+            if let urlStart = match.firstIndex(of: "("), let urlEnd = match.lastIndex(of: ")") {
+                return String(match[match.index(after: urlStart)..<urlEnd])
+            }
+        }
+        // GitHub user-content image URLs (uploaded via drag-and-drop)
+        if let range = markdown.range(of: #"!\[[^\]]*\]\((https://[^)]*user-images[^)]+)\)"#, options: .regularExpression) {
+            let match = String(markdown[range])
+            if let urlStart = match.firstIndex(of: "("), let urlEnd = match.lastIndex(of: ")") {
+                return String(match[match.index(after: urlStart)..<urlEnd])
+            }
+        }
+        // <img src="...">
+        if let range = markdown.range(of: #"<img[^>]*\ssrc="([^"]+)"#, options: .regularExpression) {
+            let match = String(markdown[range])
+            if let srcRange = match.range(of: #"src="([^"]+)"#, options: .regularExpression) {
+                return String(match[srcRange]).replacingOccurrences(of: "src=\"", with: "").replacingOccurrences(of: "\"", with: "")
             }
         }
         return nil

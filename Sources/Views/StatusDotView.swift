@@ -67,8 +67,7 @@ private struct StaticDotView: View {
         if let claudeState {
             switch claudeState {
             case .working: return .green.opacity(0.8)
-            case .waitingForUser: return .yellow.opacity(0.9)
-            case .needsPermission: return .orange
+            case .waitingForUser, .needsPermission: return .orange
             }
         }
         switch status {

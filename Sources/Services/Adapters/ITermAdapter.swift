@@ -74,8 +74,10 @@ final class ITermAdapter {
             let status = determineStatus(isProcessing: isProcessing, processes: processes)
             let title = sessionName.isEmpty ? simplifyTitle(winName) : sessionName
 
+            // Use TTY in tab ID for stability (positional index shifts when tabs close/reorder)
+            let ttyID = tty.isEmpty ? "\(tabIndex)" : tty.replacingOccurrences(of: "/dev/", with: "")
             let tab = TerminalTab(
-                id: "iterm-\(winID)-\(tabIndex)",
+                id: "iterm-\(winID)-\(ttyID)",
                 title: title,
                 status: status,
                 tty: tty,

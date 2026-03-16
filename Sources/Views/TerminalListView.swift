@@ -97,12 +97,12 @@ struct TerminalListView: View {
 
     @ViewBuilder
     private var terminalList: some View {
-        if appState.terminalGroups.isEmpty && sessionStore.savedSessions.isEmpty {
+        if activeGroups.isEmpty && sessionStore.savedSessions.isEmpty {
             emptyState
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 2) {
-                    ForEach(appState.sortedGroups) { group in
+                    ForEach(activeGroups) { group in
                         terminalGroupView(group)
                     }
 
@@ -114,6 +114,18 @@ struct TerminalListView: View {
                 .padding(.horizontal, 2)
             }
             .frame(maxHeight: 420)
+        }
+    }
+
+    /// Active groups with saved tabs filtered out
+    private var activeGroups: [TerminalGroup] {
+        let saved = sessionStore.savedTabIDs
+        if saved.isEmpty { return appState.sortedGroups }
+        return appState.sortedGroups.compactMap { group in
+            let filtered = group.tabs.filter { !saved.contains($0.id) }
+            if filtered.isEmpty { return nil }
+            if filtered.count == group.tabs.count { return group }
+            return TerminalGroup(id: group.id, app: group.app, windowTitle: group.windowTitle, windowID: group.windowID, tabs: filtered)
         }
     }
 
@@ -131,6 +143,7 @@ struct TerminalListView: View {
     private func singleTabRow(group: TerminalGroup, tab: TerminalTab) -> some View {
         let globalIdx = appState.globalIndex(for: group)
         let cwd = sessionStore.cachedDirectory(for: tab.id)
+        let cachedSID = sessionStore.cachedClaudeSessionID(for: tab.id)
         return TerminalRowView(
             tab: tab,
             group: group,
@@ -141,14 +154,10 @@ struct TerminalListView: View {
             isSelected: selectedIndex == globalIdx,
             claudeState: claudeState(for: tab),
             workingDirectory: cwd,
-            claudeSessionID: cwd.flatMap { hookServer.sessionID(forCwd: $0) },
+            claudeSessionID: cachedSID ?? cwd.flatMap { hookServer.sessionID(forCwd: $0) },
             onSelect: { focusTerminal(group: group, tab: tab) },
             onSave: {
                 sessionStore.saveSession(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
-                                         contentReader: summaryManager.contentReader, hookServer: hookServer)
-            },
-            onSaveAndClose: {
-                sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
             }
         )
@@ -180,6 +189,7 @@ struct TerminalListView: View {
 
             ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
                 let cwd = sessionStore.cachedDirectory(for: tab.id)
+                let cachedSID = sessionStore.cachedClaudeSessionID(for: tab.id)
                 TerminalRowView(
                     tab: tab,
                     group: group,
@@ -190,14 +200,10 @@ struct TerminalListView: View {
                     isSelected: selectedIndex == startIndex + index,
                     claudeState: claudeState(for: tab),
                     workingDirectory: cwd,
-                    claudeSessionID: cwd.flatMap { hookServer.sessionID(forCwd: $0) },
+                    claudeSessionID: cachedSID ?? cwd.flatMap { hookServer.sessionID(forCwd: $0) },
                     onSelect: { focusTerminal(group: group, tab: tab) },
                     onSave: {
                         sessionStore.saveSession(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
-                                         contentReader: summaryManager.contentReader, hookServer: hookServer)
-                    },
-                    onSaveAndClose: {
-                        sessionStore.saveAndClose(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
                     }
                 )
@@ -260,12 +266,11 @@ struct TerminalListView: View {
                 ForEach(sessionStore.savedSessions) { session in
                     ClosedSessionRow(
                         session: session,
-                        isActive: isSessionActive(session)
-                    ) {
-                        restoreOrFocus(session)
-                    } onDismiss: {
-                        withAnimation { sessionStore.dismissSaved(session) }
-                    }
+                        isActive: isSessionActive(session),
+                        onRestore: { restoreOrFocus(session) },
+                        onDismiss: { withAnimation { sessionStore.dismissSaved(session) } },
+                        onRename: { newName in sessionStore.renameSaved(session, to: newName) }
+                    )
                 }
             }
         }
@@ -371,34 +376,44 @@ struct TerminalListView: View {
 
     // MARK: - Helpers
 
-    /// Check if a saved session has been restored (matching cwd in active tabs)
+    /// Check if a saved session's terminal is currently open (Claude session ID match only)
     private func isSessionActive(_ session: SavedSession) -> Bool {
-        sessionStore.restoredSessionIDs.contains(session.id)
+        guard let sid = session.claudeSessionID else { return false }
+        for group in appState.terminalGroups {
+            for tab in group.tabs {
+                if sessionStore.cachedClaudeSessionID(for: tab.id) == sid {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
-    /// Look up Claude hook state for a tab by matching its cached cwd
-    /// Works even without process detection (e.g. iTerm2) by checking hook server directly
+    /// Look up Claude hook state for a tab (uses cached session ID only — no CWD fallback)
     private func claudeState(for tab: TerminalTab) -> ClaudeState? {
-        guard let cwd = sessionStore.cachedDirectory(for: tab.id),
-              let session = hookServer.session(forCwd: cwd) else { return nil }
+        guard let sid = sessionStore.cachedClaudeSessionID(for: tab.id),
+              let session = hookServer.sessions[sid] else { return nil }
         return session.state
     }
 
     // MARK: - Actions
 
     private func restoreOrFocus(_ session: SavedSession) {
+        Log.info("restoreOrFocus: id=\(session.id.prefix(8)) summary=\(session.summary) claude=\(session.wasClaudeSession) sid=\(session.claudeSessionID ?? "nil") dir=\(session.workingDirectory ?? "nil")", category: "restore")
         if let (group, tab) = findActiveTab(for: session) {
+            Log.info("restoreOrFocus: FOCUSING existing tab=\(tab.id) title=\(tab.title) in window=\(group.windowID)", category: "restore")
             focusTerminal(group: group, tab: tab)
         } else {
+            Log.info("restoreOrFocus: no active tab found, calling restore()", category: "restore")
             sessionStore.restore(session)
         }
     }
 
     private func findActiveTab(for session: SavedSession) -> (TerminalGroup, TerminalTab)? {
-        guard let dir = session.workingDirectory else { return nil }
+        guard let sid = session.claudeSessionID else { return nil }
         for group in appState.terminalGroups {
             for tab in group.tabs {
-                if sessionStore.cachedDirectory(for: tab.id) == dir {
+                if sessionStore.cachedClaudeSessionID(for: tab.id) == sid {
                     return (group, tab)
                 }
             }
@@ -418,8 +433,11 @@ struct ClosedSessionRow: View {
     let isActive: Bool
     let onRestore: () -> Void
     let onDismiss: () -> Void
+    var onRename: ((String) -> Void)? = nil
 
     @State private var isHovered = false
+    @State private var isEditing = false
+    @State private var editText = ""
 
     var body: some View {
         HStack(spacing: 8) {
@@ -431,17 +449,35 @@ struct ClosedSessionRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(session.summary)
+                    if isEditing {
+                        TextField("", text: $editText, onCommit: {
+                            let trimmed = editText.trimmingCharacters(in: .whitespaces)
+                            if !trimmed.isEmpty {
+                                onRename?(trimmed)
+                            }
+                            isEditing = false
+                        })
                         .font(.system(size: 13))
-                        .foregroundStyle(isActive ? .tertiary : .secondary)
-                        .lineLimit(1)
+                        .textFieldStyle(.plain)
+                        .onExitCommand { isEditing = false }
+                    } else {
+                        Text(session.summary)
+                            .font(.system(size: 13))
+                            .foregroundStyle(isActive ? .tertiary : .secondary)
+                            .lineLimit(1)
+                            .onTapGesture(count: 2) {
+                                guard onRename != nil else { return }
+                                editText = session.summary
+                                isEditing = true
+                            }
+                    }
 
-                    if session.effectiveTag != "term" {
+                    if !isEditing, session.effectiveTag != "term" {
                         SessionTagView(tag: session.effectiveTag)
                     }
                 }
 
-                if let dir = session.workingDirectory {
+                if !session.wasClaudeSession, let dir = session.workingDirectory {
                     Text(dir.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~"))
                         .font(.system(size: 10))
                         .foregroundStyle(.quaternary)
@@ -451,7 +487,7 @@ struct ClosedSessionRow: View {
 
             Spacer(minLength: 4)
 
-            if isHovered {
+            if isHovered && !isEditing {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
                         .font(.system(size: 9))

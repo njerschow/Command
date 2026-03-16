@@ -47,6 +47,20 @@ final class ClaudeHookServer: ObservableObject {
         let commandHook: [String: Any] = ["type": "http", "url": hookURL]
         var changed = false
 
+        // Remove any stale command-type curl hooks pointing to our URL (from earlier migration)
+        for event in requiredEvents {
+            var entries = hooks[event] as? [[String: Any]] ?? []
+            let beforeCount = entries.count
+            entries.removeAll { entry in
+                guard let entryHooks = entry["hooks"] as? [[String: Any]] else { return false }
+                return entryHooks.contains { ($0["command"] as? String)?.contains(hookURL) == true }
+            }
+            if entries.count != beforeCount {
+                hooks[event] = entries
+                changed = true
+            }
+        }
+
         for event in requiredEvents {
             var entries = hooks[event] as? [[String: Any]] ?? []
             // Check if our hook URL is already present in any entry
@@ -89,9 +103,9 @@ final class ClaudeHookServer: ObservableObject {
         listener?.stateUpdateHandler = { state in
             switch state {
             case .ready:
-                print("[ClaudeHookServer] Listening on port \(self.port)")
+                Log.info("Listening on port \(self.port)", category: "hooks")
             case .failed(let error):
-                print("[ClaudeHookServer] Listener failed: \(error)")
+                Log.error("Listener failed: \(error)", category: "hooks")
             default:
                 break
             }
@@ -163,7 +177,10 @@ final class ClaudeHookServer: ObservableObject {
     }
 
     private func processHTTPRequest(_ data: Data) {
-        guard let request = String(data: data, encoding: .utf8) else { return }
+        guard let request = String(data: data, encoding: .utf8) else {
+            Log.error("processHTTPRequest: could not decode data as UTF-8", category: "hooks")
+            return
+        }
         let body: String
         if let range = request.range(of: "\r\n\r\n") {
             body = String(request[range.upperBound...])
@@ -175,13 +192,19 @@ final class ClaudeHookServer: ObservableObject {
 
     // MARK: - Event Processing
 
-    private func processEvent(_ jsonString: String) {
+    /// Process a hook event JSON string. Internal for testability.
+    func processEvent(_ jsonString: String) {
         guard let data = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            Log.error("processEvent: failed to parse JSON", category: "hooks")
+            return
+        }
 
         let sessionID = json["session_id"] as? String ?? "unknown"
         let eventName = json["hook_event_name"] as? String ?? ""
         let cwd = json["cwd"] as? String ?? ""
+
+        Log.info("event: \(eventName) session=\(sessionID.prefix(8)) cwd=\(cwd.components(separatedBy: "/").suffix(2).joined(separator: "/"))", category: "hooks")
 
         lock.lock()
 
@@ -234,6 +257,7 @@ final class ClaudeHookServer: ObservableObject {
 
         session.cwd = cwd
         session.lastUpdated = Date()
+        session.isFileDiscovered = false  // Confirmed via real hook event
         pendingSessions[sessionID] = session
         let snapshot = pendingSessions
         lock.unlock()
@@ -294,7 +318,8 @@ final class ClaudeHookServer: ObservableObject {
                     self.pendingSessions[entry.sessionID] = ClaudeSession(
                         sessionID: entry.sessionID,
                         cwd: entry.cwd,
-                        state: .waitingForUser
+                        state: .waitingForUser,
+                        isFileDiscovered: true
                     )
                 }
             }
@@ -325,26 +350,24 @@ final class ClaudeHookServer: ObservableObject {
     private func normalizePath(_ path: String) -> String {
         var p = path
         while p.hasSuffix("/") && p.count > 1 { p.removeLast() }
-        // Resolve symlinks for consistent matching
-        let url = URL(fileURLWithPath: p).standardized
+        // Resolve symlinks (e.g. /private/tmp vs /tmp) for consistent matching
+        let url = URL(fileURLWithPath: p).resolvingSymlinksInPath()
         return url.path
     }
 
     /// Find the most recent Claude session for a given working directory
-    func sessionID(forCwd cwd: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
+    /// Only returns sessions confirmed by real hook events (not file-discovered)
+    /// Note: `sessions` is only written on main thread, so no lock needed when reading from main thread
+    func sessionID(forCwd cwd: String, excluding: Set<String> = []) -> String? {
         let normalized = normalizePath(cwd)
         return sessions.values
-            .filter { normalizePath($0.cwd) == normalized }
+            .filter { normalizePath($0.cwd) == normalized && !excluding.contains($0.sessionID) && !$0.isFileDiscovered }
             .sorted { $0.lastUpdated > $1.lastUpdated }
             .first?.sessionID
     }
 
     /// Find Claude session for a given working directory (most recent if multiple)
     func session(forCwd cwd: String) -> ClaudeSession? {
-        lock.lock()
-        defer { lock.unlock() }
         let normalized = normalizePath(cwd)
         return sessions.values
             .filter { normalizePath($0.cwd) == normalized }
@@ -352,11 +375,19 @@ final class ClaudeHookServer: ObservableObject {
             .first
     }
 
+    /// Remove a session (e.g., when the terminal that owned it closes)
+    func removeSession(_ sessionID: String) {
+        lock.lock()
+        pendingSessions.removeValue(forKey: sessionID)
+        let snapshot = pendingSessions
+        lock.unlock()
+        DispatchQueue.main.async { self.sessions = snapshot }
+        Log.info("removeSession: \(sessionID.prefix(8)) (terminal closed)", category: "hooks")
+    }
+
     /// Check if any session needs attention
     var hasActionRequired: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return sessions.values.contains {
+        sessions.values.contains {
             $0.state == .waitingForUser || $0.state == .needsPermission
         }
     }
@@ -370,6 +401,9 @@ struct ClaudeSession {
     var state: ClaudeState
     var lastEvent: String = ""
     var lastUpdated: Date = Date()
+    /// True if this session was discovered via file-based scanning (not from a real hook event).
+    /// File-discovered sessions may have wrong IDs (JSONL filename ≠ hook session_id for fresh sessions).
+    var isFileDiscovered: Bool = false
 }
 
 enum ClaudeState: Equatable {

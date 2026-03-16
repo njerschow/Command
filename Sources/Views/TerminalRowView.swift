@@ -13,7 +13,6 @@ struct TerminalRowView: View {
     var claudeSessionID: String? = nil
     let onSelect: () -> Void
     var onSave: (() -> Void)? = nil
-    var onSaveAndClose: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var isPressed = false
@@ -25,7 +24,16 @@ struct TerminalRowView: View {
         if let summary, !summary.isEmpty {
             return summary
         }
-        return tab.title
+        // Strip directory prefix from raw terminal title
+        // Terminal titles are typically "dir — process" or "user@host: dir"
+        let title = tab.title
+        if let dashRange = title.range(of: " — ") {
+            return String(title[dashRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        if let colonRange = title.range(of: ": ") {
+            return String(title[colonRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        return title
     }
 
     var body: some View {
@@ -88,7 +96,7 @@ struct TerminalRowView: View {
         .popover(isPresented: $showInfo, arrowEdge: .trailing) {
             InfoPopoverView(tab: tab, context: context, lastActive: lastActive,
                             workingDirectory: workingDirectory, claudeSessionID: claudeSessionID,
-                            claudeState: claudeState, onSave: onSave, onSaveAndClose: onSaveAndClose)
+                            claudeState: claudeState, onSave: onSave)
         }
     }
 
@@ -161,7 +169,6 @@ struct InfoPopoverView: View {
     var claudeSessionID: String? = nil
     var claudeState: ClaudeState? = nil
     var onSave: (() -> Void)? = nil
-    var onSaveAndClose: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -181,9 +188,6 @@ struct InfoPopoverView: View {
             // Timing
             if let lastActive {
                 infoRow("Last active", formatTime(lastActive))
-            }
-            if let checked = context?.lastChecked, checked != .distantPast {
-                infoRow("Last checked", formatTime(checked))
             }
 
             // Technical
@@ -224,49 +228,26 @@ struct InfoPopoverView: View {
                 }
             }
 
-            // Save / Save & Close — only show if we have the data needed for restore
-            let isSaveable = workingDirectory != nil && (claudeSessionID != nil || !tab.isClaudeSession)
-            if isSaveable {
+            // Save — only for Claude sessions with a known session ID
+            let isSaveable = tab.isClaudeSession && claudeSessionID != nil
+            if isSaveable, let onSave {
                 Divider()
-                HStack(spacing: 6) {
-                    if let onSave {
-                        Button(action: onSave) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "bookmark")
-                                    .font(.system(size: 10))
-                                Text("Save")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Color.primary.opacity(0.05))
-                            )
-                        }
-                        .buttonStyle(.plain)
+                Button(action: onSave) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bookmark")
+                            .font(.system(size: 10))
+                        Text("Save")
+                            .font(.system(size: 11, weight: .medium))
                     }
-
-                    if let onSaveAndClose {
-                        Button(action: onSaveAndClose) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "archivebox")
-                                    .font(.system(size: 10))
-                                Text("Save & Close")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(Color.primary.opacity(0.05))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
                 }
+                .buttonStyle(.plain)
             }
         }
         .padding(10)

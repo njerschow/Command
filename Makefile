@@ -29,8 +29,9 @@ dist: app
 	@cd build && ditto -c -k --keepParent Command.app Command.zip
 	@echo "Created build/Command.zip ($(du -h build/Command.zip | cut -f1))"
 
-# Build and launch .app
+# Build and launch .app (kills existing instance first)
 run: app
+	@pkill -f 'Command.app/Contents/MacOS/Command' 2>/dev/null; sleep 0.5; true
 	open build/Command.app
 
 # Clean all build artifacts
