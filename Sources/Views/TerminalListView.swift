@@ -6,6 +6,7 @@ struct TerminalListView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var hookServer: ClaudeHookServer
     @EnvironmentObject var updateChecker: UpdateChecker
+    @EnvironmentObject var autopilotManager: AutopilotManager
     @State private var selectedIndex: Int? = nil
     @State private var savedExpanded = true
     @State private var showHistory = false
@@ -20,7 +21,7 @@ struct TerminalListView: View {
 
             footer
         }
-        .frame(width: 320)
+        .frame(width: 400)
         .fixedSize(horizontal: true, vertical: true)
         .background(keyboardHandler)
         .onChange(of: appState.allTabs.count) { _, _ in
@@ -144,6 +145,7 @@ struct TerminalListView: View {
         let globalIdx = appState.globalIndex(for: group)
         let cwd = sessionStore.cachedDirectory(for: tab.id)
         let cachedSID = sessionStore.cachedClaudeSessionID(for: tab.id)
+        let effectiveSID = cachedSID ?? cwd.flatMap { hookServer.sessionID(forCwd: $0) }
         return TerminalRowView(
             tab: tab,
             group: group,
@@ -154,11 +156,30 @@ struct TerminalListView: View {
             isSelected: selectedIndex == globalIdx,
             claudeState: claudeState(for: tab),
             workingDirectory: cwd,
-            claudeSessionID: cachedSID ?? cwd.flatMap { hookServer.sessionID(forCwd: $0) },
+            claudeSessionID: effectiveSID,
             onSelect: { focusTerminal(group: group, tab: tab) },
             onSave: {
                 sessionStore.saveSession(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
+            },
+            onClose: { closeTerminal(group: group, tab: tab) },
+            windowFrame: sessionStore.cachedFrame(for: tab.id),
+            isAutopilotEnabled: autopilotManager.isEnabled(tabID: tab.id),
+            autopilotState: autopilotManager.sessionState(tabID: tab.id),
+            autopilotCycleCount: autopilotManager.sessions[tab.id]?.cycleCount ?? 0,
+            onToggleAutopilot: {
+                guard let sid = effectiveSID else { return }
+                if autopilotManager.isEnabled(tabID: tab.id) {
+                    autopilotManager.disable(tabID: tab.id)
+                } else {
+                    autopilotManager.enable(tabID: tab.id, claudeSessionID: sid, group: group, tab: tab)
+                }
+            },
+            onDismissEscalation: {
+                autopilotManager.dismissEscalation(tabID: tab.id)
+            },
+            onTestInject: {
+                WindowFocuser.shared.injectText("# test_inject_\(Int(Date().timeIntervalSince1970))", group: group, tab: tab)
             }
         )
     }
@@ -190,6 +211,7 @@ struct TerminalListView: View {
             ForEach(Array(group.tabs.enumerated()), id: \.element.id) { index, tab in
                 let cwd = sessionStore.cachedDirectory(for: tab.id)
                 let cachedSID = sessionStore.cachedClaudeSessionID(for: tab.id)
+                let effectiveSID = cachedSID ?? cwd.flatMap { hookServer.sessionID(forCwd: $0) }
                 TerminalRowView(
                     tab: tab,
                     group: group,
@@ -200,11 +222,30 @@ struct TerminalListView: View {
                     isSelected: selectedIndex == startIndex + index,
                     claudeState: claudeState(for: tab),
                     workingDirectory: cwd,
-                    claudeSessionID: cachedSID ?? cwd.flatMap { hookServer.sessionID(forCwd: $0) },
+                    claudeSessionID: effectiveSID,
                     onSelect: { focusTerminal(group: group, tab: tab) },
                     onSave: {
                         sessionStore.saveSession(group: group, tab: tab, summary: summaryManager.summary(for: tab.id),
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
+                    },
+                    onClose: { closeTerminal(group: group, tab: tab) },
+                    windowFrame: sessionStore.cachedFrame(for: tab.id),
+                    isAutopilotEnabled: autopilotManager.isEnabled(tabID: tab.id),
+                    autopilotState: autopilotManager.sessionState(tabID: tab.id),
+                    autopilotCycleCount: autopilotManager.sessions[tab.id]?.cycleCount ?? 0,
+                    onToggleAutopilot: {
+                        guard let sid = effectiveSID else { return }
+                        if autopilotManager.isEnabled(tabID: tab.id) {
+                            autopilotManager.disable(tabID: tab.id)
+                        } else {
+                            autopilotManager.enable(tabID: tab.id, claudeSessionID: sid, group: group, tab: tab)
+                        }
+                    },
+                    onDismissEscalation: {
+                        autopilotManager.dismissEscalation(tabID: tab.id)
+                    },
+                    onTestInject: {
+                        WindowFocuser.shared.injectText("# test_inject_\(Int(Date().timeIntervalSince1970))", group: group, tab: tab)
                     }
                 )
             }
@@ -298,6 +339,17 @@ struct TerminalListView: View {
     private var footer: some View {
         HStack(alignment: .center, spacing: 8) {
             FeedbackView()
+
+            if summaryManager.isSummarizing {
+                HStack(spacing: 3) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Summarizing")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                .transition(.opacity)
+            }
 
             Spacer()
 
@@ -393,6 +445,8 @@ struct TerminalListView: View {
     private func claudeState(for tab: TerminalTab) -> ClaudeState? {
         guard let sid = sessionStore.cachedClaudeSessionID(for: tab.id),
               let session = hookServer.sessions[sid] else { return nil }
+        // Don't show state for file-discovered sessions unless JSONL polling has confirmed it
+        if session.isFileDiscovered && !session.lastEvent.contains("JSONL") { return nil }
         return session.state
     }
 
@@ -422,7 +476,12 @@ struct TerminalListView: View {
     }
 
     private func focusTerminal(group: TerminalGroup, tab: TerminalTab) {
+        appState.touchActivity(tabID: tab.id)
         WindowFocuser.shared.focus(group: group, tab: tab)
+    }
+
+    private func closeTerminal(group: TerminalGroup, tab: TerminalTab) {
+        WindowFocuser.shared.close(group: group, tab: tab)
     }
 }
 

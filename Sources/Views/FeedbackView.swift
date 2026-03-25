@@ -1,10 +1,12 @@
 import SwiftUI
 
 struct FeedbackView: View {
-    @State private var showPopover = false
-
     var body: some View {
-        Button(action: { showPopover.toggle() }) {
+        Button(action: {
+            if let url = URL(string: "https://github.com/njerschow/Command/issues") {
+                NSWorkspace.shared.open(url)
+            }
+        }) {
             HStack(spacing: 4) {
                 Image(systemName: "bubble.left")
                     .font(.system(size: 10))
@@ -17,9 +19,6 @@ struct FeedbackView: View {
         .onHover { inside in
             if inside { NSCursor.pointingHand.push() }
             else { NSCursor.pop() }
-        }
-        .popover(isPresented: $showPopover, arrowEdge: .top) {
-            FeedbackPopoverView()
         }
     }
 }

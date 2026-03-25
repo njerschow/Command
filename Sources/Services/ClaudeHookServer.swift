@@ -204,7 +204,9 @@ final class ClaudeHookServer: ObservableObject {
         let eventName = json["hook_event_name"] as? String ?? ""
         let cwd = json["cwd"] as? String ?? ""
 
-        Log.info("event: \(eventName) session=\(sessionID.prefix(8)) cwd=\(cwd.components(separatedBy: "/").suffix(2).joined(separator: "/"))", category: "hooks")
+        // Log all keys on first event per session to understand available fields
+        let keys = json.keys.sorted().joined(separator: ", ")
+        Log.info("event: \(eventName) session=\(sessionID.prefix(8)) cwd=\(cwd.components(separatedBy: "/").suffix(2).joined(separator: "/")) keys=[\(keys)]", category: "hooks")
 
         lock.lock()
 
@@ -317,7 +319,7 @@ final class ClaudeHookServer: ObservableObject {
                     self.pendingSessions[entry.sessionID] = ClaudeSession(
                         sessionID: entry.sessionID,
                         cwd: entry.cwd,
-                        state: .waitingForUser,
+                        state: .working,
                         isFileDiscovered: true
                     )
                 }
@@ -363,7 +365,7 @@ final class ClaudeHookServer: ObservableObject {
     func sessionID(forCwd cwd: String, excluding: Set<String> = []) -> String? {
         let normalized = normalizePath(cwd)
         return sessions.values
-            .filter { normalizePath($0.cwd) == normalized && !excluding.contains($0.sessionID) && !$0.isFileDiscovered }
+            .filter { normalizePath($0.cwd) == normalized && !excluding.contains($0.sessionID) }
             .sorted { $0.lastUpdated > $1.lastUpdated }
             .first?.sessionID
     }
@@ -375,6 +377,26 @@ final class ClaudeHookServer: ObservableObject {
             .filter { normalizePath($0.cwd) == normalized }
             .sorted { $0.lastUpdated > $1.lastUpdated }
             .first
+    }
+
+    /// Register a session discovered via file/TTY scanning (called from scan loop when session not yet in hookServer)
+    func registerFileDiscovered(sessionID: String, cwd: String) {
+        lock.lock()
+        if pendingSessions[sessionID] == nil {
+            pendingSessions[sessionID] = ClaudeSession(
+                sessionID: sessionID,
+                cwd: cwd,
+                state: .working,
+                lastEvent: "Discovered via process scan",
+                isFileDiscovered: true
+            )
+            let snapshot = pendingSessions
+            lock.unlock()
+            DispatchQueue.main.async { self.sessions = snapshot }
+            Log.info("registerFileDiscovered: \(sessionID.prefix(8)) cwd=\(cwd)", category: "hooks")
+        } else {
+            lock.unlock()
+        }
     }
 
     /// Remove a session (e.g., when the terminal that owned it closes)
@@ -392,6 +414,130 @@ final class ClaudeHookServer: ObservableObject {
         sessions.values.contains {
             $0.state == .waitingForUser || $0.state == .needsPermission
         }
+    }
+
+    // MARK: - JSONL Polling (for sessions that don't send hooks)
+
+    private var pollTimer: Timer?
+    private var lastPolledMtimes: [String: Date] = [:]  // sessionID -> last known mtime
+
+    /// Start polling JSONL files every 5s for sessions without recent hook events
+    func startJSONLPolling() {
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.pollJSONLFiles()
+        }
+    }
+
+    func stopJSONLPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    private func pollJSONLFiles() {
+        let sessionsSnapshot: [String: ClaudeSession]
+        lock.lock()
+        sessionsSnapshot = pendingSessions
+        lock.unlock()
+
+        // Only poll file-discovered sessions (no hooks arriving)
+        let candidates = sessionsSnapshot.filter { $0.value.isFileDiscovered }
+        guard !candidates.isEmpty else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            var updates: [(String, ClaudeState, String)] = []  // (sessionID, newState, lastEvent)
+
+            for (sid, session) in candidates {
+                guard let path = self.findJSONLPath(sessionID: sid, cwd: session.cwd) else { continue }
+
+                // Check mtime — skip if unchanged
+                guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                      let mtime = attrs[.modificationDate] as? Date else { continue }
+
+                if let lastMtime = self.lastPolledMtimes[sid], mtime == lastMtime { continue }
+                self.lastPolledMtimes[sid] = mtime
+
+                // Read last meaningful line to determine state
+                let newState = self.detectStateFromJSONL(path: path)
+                if newState != session.state {
+                    let event: String
+                    switch newState {
+                    case .working: event = "Working (JSONL)"
+                    case .waitingForUser: event = "Waiting for input (JSONL)"
+                    case .needsPermission: event = "Needs permission (JSONL)"
+                    }
+                    updates.append((sid, newState, event))
+                    Log.info("JSONL poll: \(sid.prefix(8)) state changed to \(event)", category: "hooks")
+                }
+            }
+
+            guard !updates.isEmpty else { return }
+
+            self.lock.lock()
+            for (sid, state, event) in updates {
+                self.pendingSessions[sid]?.state = state
+                self.pendingSessions[sid]?.lastEvent = event
+                self.pendingSessions[sid]?.lastUpdated = Date()
+            }
+            let snapshot = self.pendingSessions
+            self.lock.unlock()
+
+            DispatchQueue.main.async { self.sessions = snapshot }
+        }
+    }
+
+    /// Detect Claude state from the last entries in a JSONL file
+    private func detectStateFromJSONL(path: String) -> ClaudeState {
+        // Read last 8KB of file (enough for last few entries)
+        guard let fh = FileHandle(forReadingAtPath: path) else { return .working }
+        defer { fh.closeFile() }
+
+        let fileSize = fh.seekToEndOfFile()
+        let readSize: UInt64 = min(fileSize, 8192)
+        fh.seek(toFileOffset: fileSize - readSize)
+        let data = fh.readDataToEndOfFile()
+        guard let tail = String(data: data, encoding: .utf8) else { return .working }
+
+        // Find the last message entry
+        var lastRole = ""
+        var lastType = ""
+        for line in tail.components(separatedBy: "\n").reversed() where !line.isEmpty {
+            guard let lineData = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let type = obj["type"] as? String else { continue }
+
+            if type == "user" || type == "assistant" {
+                lastType = type
+                if let msg = obj["message"] as? [String: Any] {
+                    lastRole = msg["role"] as? String ?? type
+                }
+                break
+            }
+        }
+
+        // If last message is from assistant, Claude finished = waiting for user
+        // If last message is from user, Claude is working on a response
+        if lastRole == "assistant" || lastType == "assistant" {
+            return .waitingForUser
+        }
+        return .working
+    }
+
+    /// Find the JSONL file path for a session
+    private func findJSONLPath(sessionID: String, cwd: String) -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let encodedPath = cwd.replacingOccurrences(of: "/", with: "-")
+        let directPath = "\(home)/.claude/projects/\(encodedPath)/\(sessionID).jsonl"
+        if FileManager.default.fileExists(atPath: directPath) { return directPath }
+
+        // Scan all project directories
+        let projectsDir = "\(home)/.claude/projects"
+        guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: projectsDir) else { return nil }
+        for dir in dirs {
+            let candidate = "\(projectsDir)/\(dir)/\(sessionID).jsonl"
+            if FileManager.default.fileExists(atPath: candidate) { return candidate }
+        }
+        return nil
     }
 }
 

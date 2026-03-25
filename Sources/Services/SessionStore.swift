@@ -50,6 +50,10 @@ final class SessionStore: ObservableObject {
         cachedDirectories[tabID]
     }
 
+    func cachedFrame(for tabID: String) -> WindowFrame? {
+        cachedWindowFrames[tabID]
+    }
+
     func cacheClaudeSessionID(_ sessionID: String?, for tabID: String) {
         if let sessionID, !sessionID.isEmpty {
             cachedClaudeSessionIDs[tabID] = sessionID

@@ -3,393 +3,408 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Command — Terminal Manager for macOS</title>
+    <title>Command — See every terminal at a glance</title>
+    <meta name="description" content="A tiny macOS menubar app that shows all your open terminals with smart AI summaries. Press Cmd+. to see everything.">
     <style>
         :root {
             --bg: #fafafa;
             --fg: #111;
             --muted: #666;
-            --subtle: #e5e5e5;
+            --dim: #999;
+            --subtle: #e8e8e8;
             --accent: #0066ff;
-            --accent-soft: #0066ff15;
-            --radius: 12px;
+            --accent-soft: rgba(0, 102, 255, 0.06);
             --card-bg: #fff;
-            --code-bg: #f5f5f5;
+            --code-bg: #f3f3f3;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.08);
+            --video-glow: 0 4px 24px rgba(0,0,0,0.08), 0 12px 48px rgba(0,0,0,0.06);
         }
-
         @media (prefers-color-scheme: dark) {
             :root {
-                --bg: #0a0a0a;
-                --fg: #eee;
-                --muted: #999;
-                --subtle: #222;
-                --accent: #4d9fff;
-                --accent-soft: #4d9fff15;
-                --card-bg: #141414;
+                --bg: #0b0b0b;
+                --fg: #e8e8e8;
+                --muted: #888;
+                --dim: #555;
+                --subtle: #1c1c1c;
+                --accent: #5aa3ff;
+                --accent-soft: rgba(90, 163, 255, 0.08);
+                --card-bg: #151515;
                 --code-bg: #1a1a1a;
+                --shadow: 0 1px 3px rgba(0,0,0,0.2), 0 8px 32px rgba(0,0,0,0.3);
+                --video-glow: 0 4px 24px rgba(0,0,0,0.3), 0 12px 64px rgba(0,0,0,0.4);
             }
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Helvetica Neue', sans-serif;
             background: var(--bg);
             color: var(--fg);
-            line-height: 1.6;
             -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
         }
 
-        .container {
-            max-width: 720px;
+        .wrap { max-width: 760px; margin: 0 auto; padding: 0 24px; }
+
+        /* ---- NAV ---- */
+        nav {
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 760px;
             margin: 0 auto;
-            padding: 0 24px;
         }
+        .logo {
+            font-weight: 700;
+            font-size: 14px;
+            color: var(--fg);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .logo-badge {
+            font-family: 'SF Mono', 'Menlo', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            background: var(--fg);
+            color: var(--bg);
+            padding: 3px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.02em;
+        }
+        .nav-links { display: flex; gap: 20px; }
+        .nav-links a {
+            font-size: 13px;
+            color: var(--muted);
+            text-decoration: none;
+        }
+        .nav-links a:hover { color: var(--fg); }
 
-        /* Hero */
+        /* ---- HERO ---- */
         .hero {
             text-align: center;
-            padding: 80px 0 48px;
+            padding: 72px 0 40px;
         }
-
-        .hero-icon {
-            width: 72px;
-            height: 72px;
-            background: var(--accent-soft);
-            border-radius: 18px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 24px;
-            font-size: 32px;
+        .hero h1 {
+            font-size: 52px;
+            font-weight: 750;
+            letter-spacing: -0.035em;
+            line-height: 1.05;
+            margin-bottom: 16px;
         }
-
-        h1 {
-            font-size: 40px;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            line-height: 1.1;
-            margin-bottom: 12px;
+        .grad {
+            background: linear-gradient(135deg, #0066ff 0%, #00b4d8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
-
-        h1 span {
-            color: var(--accent);
+        @media (prefers-color-scheme: dark) {
+            .grad {
+                background: linear-gradient(135deg, #5aa3ff 0%, #38d9ff 100%);
+                -webkit-background-clip: text;
+                background-clip: text;
+            }
         }
-
-        .subtitle {
-            font-size: 18px;
+        .hero .sub {
+            font-size: 17px;
+            line-height: 1.55;
             color: var(--muted);
             max-width: 480px;
-            margin: 0 auto 32px;
+            margin: 0 auto 28px;
         }
-
         .cta-row {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             justify-content: center;
             flex-wrap: wrap;
         }
-
         .btn {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 12px 24px;
-            border-radius: 10px;
-            font-size: 15px;
+            gap: 7px;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
             font-weight: 600;
             text-decoration: none;
-            transition: all 0.15s ease;
+            transition: all 0.12s ease;
+            border: none;
+            cursor: pointer;
         }
-
-        .btn-primary {
-            background: var(--accent);
-            color: #fff;
+        .btn-p { background: var(--fg); color: var(--bg); }
+        .btn-p:hover { opacity: 0.85; }
+        .btn-s { background: transparent; color: var(--fg); border: 1px solid var(--subtle); }
+        .btn-s:hover { background: var(--subtle); }
+        .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+        .meta {
+            margin-top: 20px;
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            flex-wrap: wrap;
         }
-
-        .btn-primary:hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
-        }
-
-        .btn-secondary {
-            background: var(--subtle);
-            color: var(--fg);
-        }
-
-        .btn-secondary:hover {
-            opacity: 0.8;
-        }
-
-        .btn svg {
-            width: 18px;
-            height: 18px;
-        }
-
-        /* Shortcut badge */
-        .shortcut {
-            display: inline-block;
-            margin-top: 16px;
-            padding: 4px 12px;
-            background: var(--code-bg);
-            border-radius: 6px;
-            font-size: 13px;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            color: var(--muted);
+        .meta span {
+            font-size: 11px;
+            color: var(--dim);
+            padding: 3px 10px;
             border: 1px solid var(--subtle);
+            border-radius: 100px;
+        }
+        .meta kbd {
+            font-family: 'SF Mono', monospace;
+            font-size: 10px;
         }
 
-        /* Features */
-        .features {
-            padding: 48px 0;
+        /* ---- VIDEO ---- */
+        .vid-wrap {
+            padding: 0 0 72px;
+        }
+        .vid-frame {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: var(--video-glow);
+            border: 1px solid var(--subtle);
+            background: #000;
+        }
+        .vid-frame video {
+            width: 100%;
+            display: block;
         }
 
-        .features h2 {
-            font-size: 24px;
+        /* ---- FEATURES ---- */
+        .features { padding: 72px 0; border-top: 1px solid var(--subtle); }
+        .label {
+            font-size: 11px;
             font-weight: 700;
-            margin-bottom: 32px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
             text-align: center;
-            letter-spacing: -0.01em;
+            margin-bottom: 6px;
         }
-
-        .feature-grid {
+        .stitle {
+            font-size: 26px;
+            font-weight: 700;
+            text-align: center;
+            letter-spacing: -0.02em;
+            margin-bottom: 36px;
+        }
+        .fgrid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
         }
-
-        .feature-card {
+        .fcard {
             background: var(--card-bg);
             border: 1px solid var(--subtle);
-            border-radius: var(--radius);
+            border-radius: 10px;
             padding: 20px;
+            transition: border-color 0.15s;
         }
+        .fcard:hover { border-color: var(--accent); }
+        .fcard h3 { font-size: 14px; font-weight: 650; margin-bottom: 4px; }
+        .fcard p { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 
-        .feature-card .icon {
-            font-size: 24px;
-            margin-bottom: 8px;
-        }
-
-        .feature-card h3 {
-            font-size: 15px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .feature-card p {
-            font-size: 13px;
-            color: var(--muted);
-            line-height: 1.5;
-        }
-
-        /* How it works */
-        .how-it-works {
-            padding: 48px 0;
-        }
-
-        .how-it-works h2 {
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 24px;
-            text-align: center;
-        }
-
+        /* ---- HOW ---- */
+        .how { padding: 72px 0; border-top: 1px solid var(--subtle); }
         .steps {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 36px;
         }
-
-        .step {
-            display: flex;
-            gap: 16px;
-            align-items: flex-start;
-        }
-
-        .step-num {
-            flex-shrink: 0;
-            width: 28px;
-            height: 28px;
+        .step { text-align: center; }
+        .step-n {
+            width: 30px; height: 30px;
+            border-radius: 50%;
             background: var(--accent-soft);
+            border: 1.5px solid var(--accent);
             color: var(--accent);
-            border-radius: 8px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
-            font-weight: 700;
-        }
-
-        .step-text h3 {
-            font-size: 15px;
-            font-weight: 600;
-            margin-bottom: 2px;
-        }
-
-        .step-text p {
             font-size: 13px;
-            color: var(--muted);
+            font-weight: 700;
+            margin-bottom: 10px;
         }
+        .step h3 { font-size: 14px; font-weight: 650; margin-bottom: 4px; }
+        .step p { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 
-        /* Install */
-        .install {
-            padding: 48px 0;
+        /* ---- INSTALL ---- */
+        .install { padding: 72px 0; border-top: 1px solid var(--subtle); text-align: center; }
+        .install-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            max-width: 520px;
+            margin: 32px auto 0;
+        }
+        .icard {
+            background: var(--card-bg);
+            border: 1px solid var(--subtle);
+            border-radius: 10px;
+            padding: 24px 20px;
             text-align: center;
         }
-
-        .install h2 {
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .install p {
-            color: var(--muted);
-            margin-bottom: 24px;
-        }
-
-        .install-code {
-            display: inline-block;
-            padding: 12px 20px;
+        .icard h3 { font-size: 14px; font-weight: 650; margin-bottom: 6px; }
+        .icard p { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.5; }
+        .icard .btn { width: 100%; justify-content: center; }
+        .icode {
+            display: block;
+            padding: 10px 12px;
             background: var(--code-bg);
             border: 1px solid var(--subtle);
-            border-radius: 8px;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 14px;
+            border-radius: 6px;
+            font-family: 'SF Mono', 'Menlo', monospace;
+            font-size: 11.5px;
             color: var(--fg);
+            text-align: left;
+            line-height: 1.7;
             user-select: all;
         }
 
-        /* Footer */
+        /* ---- FOOTER ---- */
         footer {
-            padding: 32px 0;
+            padding: 28px 0;
             text-align: center;
-            font-size: 13px;
-            color: var(--muted);
             border-top: 1px solid var(--subtle);
+            font-size: 12px;
+            color: var(--dim);
         }
+        footer a { color: var(--muted); text-decoration: none; }
+        footer a:hover { color: var(--fg); }
 
-        footer a {
-            color: var(--accent);
-            text-decoration: none;
-        }
-
-        /* Responsive */
-        @media (max-width: 600px) {
+        /* ---- RESPONSIVE ---- */
+        @media (max-width: 640px) {
             .hero { padding: 48px 0 32px; }
-            h1 { font-size: 28px; }
-            .subtitle { font-size: 16px; }
-            .feature-grid { grid-template-columns: 1fr; }
+            .hero h1 { font-size: 34px; }
+            .hero .sub { font-size: 15px; }
+            .fgrid, .steps { grid-template-columns: 1fr; }
+            .install-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Hero -->
+    <nav>
+        <a href="/" class="logo"><span class="logo-badge">&#x2318;.</span> Command</a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#install">Install</a>
+            <a href="https://github.com/n/Command">GitHub</a>
+        </div>
+    </nav>
+
+    <div class="wrap">
         <section class="hero">
-            <div class="hero-icon">&#x2318;</div>
-            <h1>All your terminals.<br><span>One glance.</span></h1>
-            <p class="subtitle">
-                Command is a tiny macOS menubar app that shows every open terminal window
-                with a smart 5-word summary of what's happening inside.
-            </p>
+            <h1>Every terminal.<br><span class="grad">One glance.</span></h1>
+            <p class="sub">A macOS menubar app that shows all your open terminals with smart AI summaries. Know what's running everywhere, instantly.</p>
             <div class="cta-row">
-                <a href="#install" class="btn btn-primary">
+                <a href="https://github.com/n/Command/releases/latest" class="btn btn-p">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     Download
                 </a>
-                <a href="https://github.com" class="btn btn-secondary">
+                <a href="https://github.com/n/Command" class="btn btn-s">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
                     Source
                 </a>
             </div>
-            <div class="shortcut">&#x2318;+. to toggle</div>
+            <div class="meta">
+                <span>macOS 14+</span>
+                <span>SwiftUI</span>
+                <span>~700 KB</span>
+                <span><kbd>&#x2318;</kbd>+<kbd>.</kbd> to toggle</span>
+            </div>
         </section>
 
-        <!-- Features -->
-        <section class="features">
-            <h2>Built for developers who live in the terminal</h2>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="icon">&#x1F50D;</div>
+        <section class="vid-wrap">
+            <div class="vid-frame">
+                <video autoplay loop muted playsinline>
+                    <source src="demo.mp4" type="video/mp4">
+                </video>
+            </div>
+        </section>
+
+        <section class="features" id="features">
+            <div class="label">Features</div>
+            <h2 class="stitle">Built for developers who live in the terminal</h2>
+            <div class="fgrid">
+                <div class="fcard">
                     <h3>Smart summaries</h3>
-                    <p>AI-generated 5-word descriptions of what's running in each terminal. Powered by Claude Haiku.</p>
+                    <p>AI-generated 5-word descriptions via Claude. Local heuristics handle common patterns first.</p>
                 </div>
-                <div class="feature-card">
-                    <div class="icon">&#x26A1;</div>
+                <div class="fcard">
                     <h3>Instant switching</h3>
-                    <p>Click any row or press &#x2318;+1-9 to jump straight to the right window and tab.</p>
+                    <p>Click any row or press &#x2318;+1&#x2013;9 to jump straight to the right window and tab.</p>
                 </div>
-                <div class="feature-card">
-                    <div class="icon">&#x1F7E2;</div>
+                <div class="fcard">
                     <h3>Action required</h3>
-                    <p>Green pulse when a terminal needs your attention — prompts, errors, Claude waiting.</p>
+                    <p>Pulsing indicator when a terminal needs attention &#x2014; prompts, errors, or Claude waiting for input.</p>
                 </div>
-                <div class="feature-card">
-                    <div class="icon">&#x1F50B;</div>
+                <div class="fcard">
+                    <h3>Session history</h3>
+                    <p>Closed terminals are saved with summary and output. Search and restore past sessions anytime.</p>
+                </div>
+                <div class="fcard">
+                    <h3>Claude Code aware</h3>
+                    <p>Tracks Claude session state via hooks. See working, waiting, or needs-permission at a glance.</p>
+                </div>
+                <div class="fcard">
                     <h3>Battery friendly</h3>
-                    <p>Adaptive polling. Idle terminals are skipped. AI calls are batched and cached.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="icon">&#x1F3A8;</div>
-                    <h3>Native & beautiful</h3>
-                    <p>SwiftUI with translucent materials, spring animations, light/dark mode. Feels like macOS.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="icon">&#x1F4CB;</div>
-                    <h3>Rolling context</h3>
-                    <p>Summaries remember what you were doing, not just what's on screen right now.</p>
+                    <p>Adaptive polling, fingerprint-based change detection, batched AI calls. Nearly zero CPU usage.</p>
                 </div>
             </div>
         </section>
 
-        <!-- How it works -->
-        <section class="how-it-works">
-            <h2>How it works</h2>
+        <section class="how" id="how">
+            <div class="label">How it works</div>
+            <h2 class="stitle">Three layers, zero config</h2>
             <div class="steps">
                 <div class="step">
-                    <div class="step-num">1</div>
-                    <div class="step-text">
-                        <h3>Scans every 2 seconds</h3>
-                        <p>Detects all Terminal.app windows and tabs via AppleScript. Reads process state and window titles.</p>
-                    </div>
+                    <div class="step-n">1</div>
+                    <h3>Scan</h3>
+                    <p>Every 2s, reads Terminal.app and iTerm2 windows via AppleScript. Detects running processes.</p>
                 </div>
                 <div class="step">
-                    <div class="step-num">2</div>
-                    <div class="step-text">
-                        <h3>Fingerprints every 5 minutes</h3>
-                        <p>Reads the last 100 lines, strips noise (spinners, progress bars, ANSI codes), and hashes for change detection.</p>
-                    </div>
+                    <div class="step-n">2</div>
+                    <h3>Fingerprint</h3>
+                    <p>Periodically reads terminal output, strips ANSI noise, and hashes for change detection.</p>
                 </div>
                 <div class="step">
-                    <div class="step-num">3</div>
-                    <div class="step-text">
-                        <h3>Summarizes intelligently</h3>
-                        <p>Local heuristics handle obvious cases (SSH, servers, builds). Only ambiguous terminals get sent to AI — one batched call for all of them.</p>
-                    </div>
+                    <div class="step-n">3</div>
+                    <h3>Summarize</h3>
+                    <p>Local heuristics handle SSH, builds, and servers. Ambiguous terminals go to Claude in one batch.</p>
                 </div>
             </div>
         </section>
 
-        <!-- Install -->
         <section class="install" id="install">
-            <h2>Get started</h2>
-            <p>macOS 14+ required. Download the app or build from source.</p>
-            <div class="cta-row" style="margin-bottom: 16px;">
-                <a href="https://github.com/n/Command/releases/latest" class="btn btn-primary">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Download Command.zip
-                </a>
+            <div class="label">Install</div>
+            <h2 class="stitle">Get started in seconds</h2>
+            <div class="install-grid">
+                <div class="icard">
+                    <h3>Download</h3>
+                    <p>Grab the latest release, unzip, and drag to Applications.</p>
+                    <a href="https://github.com/n/Command/releases/latest" class="btn btn-p">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Command.zip
+                    </a>
+                </div>
+                <div class="icard">
+                    <h3>Build from source</h3>
+                    <p>Clone the repo and build with Swift Package Manager.</p>
+                    <code class="icode">git clone https://github.com/n/Command<br>cd Command && make app</code>
+                </div>
             </div>
-            <p style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">Or build from source:</p>
-            <div class="install-code">git clone https://github.com/n/Command &amp;&amp; cd Command &amp;&amp; make app</div>
-            <p style="font-size: 12px; color: var(--muted); margin-top: 8px;">Requires Xcode Command Line Tools. macOS 14+.</p>
         </section>
-
-        <!-- Footer -->
-        <footer>
-            <p>Built with SwiftUI. Open source. <a href="https://github.com">GitHub</a></p>
-        </footer>
     </div>
+
+    <footer>
+        <div class="wrap">
+            <p>MIT License &middot; <a href="https://github.com/n/Command">GitHub</a> &middot; Built with SwiftUI</p>
+        </div>
+    </footer>
 </body>
 </html>

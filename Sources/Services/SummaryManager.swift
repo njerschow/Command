@@ -4,16 +4,27 @@ import Combine
 /// Orchestrates terminal summaries: fingerprinting, local heuristics, AI generation, rolling context
 final class SummaryManager: ObservableObject {
     @Published var contexts: [String: TerminalContext] = [:]
+    @Published var isSummarizing = false
 
     let contentReader = ContentReader()
     private var timer: Timer?
     private var isRefreshing = false
+    private var refreshStartedAt: Date?
     private weak var appState: AppState?
+    private var persistTimer: Timer?
+
+    private static let summaryFile: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("Command", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("summaries.json")
+    }()
 
     // MARK: - Lifecycle
 
     func start(appState: AppState) {
         self.appState = appState
+        loadPersistedSummaries()
 
         // First refresh after 3s (let scanner populate terminal list first)
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -23,6 +34,32 @@ final class SummaryManager: ObservableObject {
         // Then every 5 minutes
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.refresh()
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func loadPersistedSummaries() {
+        guard let data = try? Data(contentsOf: Self.summaryFile),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        for (tabID, summary) in dict {
+            var ctx = contexts[tabID] ?? TerminalContext()
+            ctx.currentSummary = summary
+            ctx.summaryMethod = .aiGenerated
+            contexts[tabID] = ctx
+        }
+        Log.info("loaded \(dict.count) persisted summaries", category: "summary")
+    }
+
+    private func persistSummaries() {
+        persistTimer?.invalidate()
+        persistTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            let dict = self.contexts.compactMapValues { ctx -> String? in
+                ctx.currentSummary.isEmpty ? nil : ctx.currentSummary
+            }
+            guard let data = try? JSONEncoder().encode(dict) else { return }
+            try? data.write(to: Self.summaryFile, options: .atomic)
         }
     }
 
@@ -45,8 +82,19 @@ final class SummaryManager: ObservableObject {
     // MARK: - Core Refresh
 
     func refresh() {
-        guard !isRefreshing, let groups = appState?.terminalGroups, !groups.isEmpty else { return }
+        // Safety: reset isRefreshing if stuck for over 120s
+        if isRefreshing, let started = refreshStartedAt, Date().timeIntervalSince(started) > 120 {
+            Log.error("refresh was stuck for >120s, resetting", category: "summary")
+            isRefreshing = false
+        }
+        guard !isRefreshing, let groups = appState?.terminalGroups, !groups.isEmpty else {
+            Log.info("refresh skipped: isRefreshing=\(isRefreshing) groups=\(appState?.terminalGroups.count ?? 0)", category: "summary")
+            return
+        }
         isRefreshing = true
+        isSummarizing = true
+        refreshStartedAt = Date()
+        Log.info("refresh started for \(groups.flatMap(\.tabs).count) tabs", category: "summary")
 
         let snapshot = self.contexts
 
@@ -128,8 +176,19 @@ final class SummaryManager: ObservableObject {
             }
 
             DispatchQueue.main.async { [weak self] in
-                self?.contexts = updated
-                self?.isRefreshing = false
+                guard let self else { return }
+                let started = self.refreshStartedAt ?? Date()
+                self.contexts = updated
+                self.isRefreshing = false
+                self.refreshStartedAt = nil
+                self.persistSummaries()
+                Log.info("refresh complete: \(updated.count) contexts, \(aiBatch.count) AI-summarized", category: "summary")
+                // Keep indicator visible for at least 1s so the user can see it
+                let elapsed = Date().timeIntervalSince(started)
+                let delay = max(0, 1.0 - elapsed)
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.isSummarizing = false
+                }
             }
         }
     }
@@ -193,6 +252,7 @@ final class SummaryManager: ObservableObject {
     }
 
     private func callClaude(prompt: String) -> String? {
+        Log.info("callClaude: starting claude -p (prompt \(prompt.count) chars)", category: "summary")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", "CLAUDECODE= claude -p --model haiku --no-session-persistence"]
@@ -226,14 +286,17 @@ final class SummaryManager: ObservableObject {
             exitGroup.enter()
             DispatchQueue.global().async { process.waitUntilExit(); exitGroup.leave() }
             if exitGroup.wait(timeout: .now() + 30) == .timedOut {
+                Log.error("callClaude: timed out after 30s, killing", category: "summary")
                 process.terminate()
                 return nil
             }
 
             readGroup.wait()
             let text = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            Log.info("callClaude: got response (\(text?.count ?? 0) chars)", category: "summary")
             return text?.isEmpty == true ? nil : text
         } catch {
+            Log.error("callClaude: failed to run: \(error)", category: "summary")
             return nil
         }
     }
