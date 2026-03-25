@@ -2,14 +2,14 @@
 
 A tiny macOS menubar app that shows all your open terminal windows with smart 5-word summaries.
 
-**Press ⌘+. to see every terminal at a glance.**
+**Press <kbd>⌘</kbd> <kbd>.</kbd> to see every terminal at a glance.**
 
 ## Features
 
 - **Smart summaries** — AI-generated descriptions via Claude Haiku, with local heuristics for common cases
 - **Rolling context** — summaries remember what you were doing, not just what's on screen now
 - **Action required** — green pulse when a terminal needs your attention
-- **Instant switching** — click or ⌘+1-9 to jump to any window/tab
+- **Instant switching** — click or <kbd>⌘</kbd> <kbd>1</kbd>-<kbd>9</kbd> to jump to any window/tab
 - **Battery friendly** — adaptive polling, fingerprint-based change detection, batched AI calls
 - **Info popover** — see how each summary was generated, activity history, TTY details
 - **Native** — SwiftUI + AppKit, translucent materials, light/dark mode, 688KB binary
@@ -24,12 +24,17 @@ A tiny macOS menubar app that shows all your open terminal windows with smart 5-
 
 ### Download
 
-Grab the latest `.zip` from [Releases](https://github.com/n/Command/releases), unzip, drag to Applications.
+**[Command.zip](https://github.com/njerschow/Command/releases/latest/download/Command.zip)** — unzip, drag to Applications.
+
+> [!NOTE]
+> MacOS may block the app because it's from an unidentified developer.
+> To allow it, go to **System Settings → Privacy & Security**, find the message about Command, and click **Open Anyway**.
+> See [Apple's guide](https://support.apple.com/en-us/102445#openanyway) for details.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/n/Command
+git clone https://github.com/njerschow/Command
 cd Command
 make app       # creates build/Command.app
 make run       # builds and launches
@@ -38,9 +43,9 @@ make run       # builds and launches
 ## Usage
 
 1. Launch Command — it appears in your menubar as a terminal icon
-2. Click the icon or press **⌘+.** to see all open terminals
+2. Click the icon or press <kbd>⌘</kbd> <kbd>.</kbd> to see all open terminals
 3. Click any row to focus that window/tab
-4. Hover to see ⌘+N shortcuts and the info button
+4. Hover to see <kbd>⌘</kbd>N shortcuts and the info button
 
 ### Permissions
 
@@ -86,7 +91,7 @@ Sources/
 │   ├── StatusDotView.swift       # Animated status indicator
 │   └── FeedbackView.swift        # Inline feedback widget
 └── Utilities/
-    ├── HotkeyManager.swift       # Global ⌘+. hotkey
+    ├── HotkeyManager.swift       # Global ⌘. hotkey
     └── FeedbackSubmitter.swift   # HTTP feedback poster
 ```
 
