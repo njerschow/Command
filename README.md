@@ -45,7 +45,7 @@ make run       # builds and launches
 1. Launch Command — it appears in your menubar as a terminal icon
 2. Click the icon or press <kbd>⌘</kbd> <kbd>.</kbd> to see all open terminals
 3. Click any row to focus that window/tab
-4. Hover to see <kbd>⌘</kbd> <kbd>N</kbd> shortcuts and the info button
+4. Hover to see <kbd>⌘</kbd>N shortcuts and the info button
 
 ### Permissions
 
