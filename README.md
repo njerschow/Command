@@ -9,7 +9,7 @@ A tiny macOS menubar app that shows all your open terminal windows with smart 5-
 - **Smart summaries** — AI-generated descriptions via Claude Haiku, with local heuristics for common cases
 - **Rolling context** — summaries remember what you were doing, not just what's on screen now
 - **Action required** — green pulse when a terminal needs your attention
-- **Instant switching** — click or <kbd>⌘</kbd> <kbd>1</kbd>–<kbd>9</kbd> to jump to any window/tab
+- **Instant switching** — click or <kbd>⌘</kbd> <kbd>1</kbd>-<kbd>9</kbd> to jump to any window/tab
 - **Battery friendly** — adaptive polling, fingerprint-based change detection, batched AI calls
 - **Info popover** — see how each summary was generated, activity history, TTY details
 - **Native** — SwiftUI + AppKit, translucent materials, light/dark mode, 688KB binary
@@ -24,10 +24,12 @@ A tiny macOS menubar app that shows all your open terminal windows with smart 5-
 
 ### Download
 
-**[Download Command.zip](https://github.com/njerschow/Command/releases/latest/download/Command.zip)** — unzip, drag to Applications.
+**[Command.zip](https://github.com/njerschow/Command/releases/latest/download/Command.zip)** — unzip, drag to Applications.
 
 > [!NOTE]
-> macOS may block the app because it's from an unidentified developer. To allow it, go to **System Settings → Privacy & Security**, find the message about Command, and click **Open Anyway**. See [Apple's guide](https://support.apple.com/en-us/102445#openanyway) for details.
+> MacOS may block the app because it's from an unidentified developer.
+> To allow it, go to **System Settings → Privacy & Security**, find the message about Command, and click **Open Anyway**.
+> See [Apple's guide](https://support.apple.com/en-us/102445#openanyway) for details.
 
 ### Build from source
 
