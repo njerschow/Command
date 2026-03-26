@@ -1,8 +1,8 @@
 import XCTest
 @testable import Command
 
-/// Tests for the status indicator system: correct color/state mapping,
-/// autopilot embellishments, and hook-to-UI state transitions.
+/// Tests for the status indicator system: correct color/state mapping
+/// and hook-to-UI state transitions.
 final class StatusIndicatorTests: XCTestCase {
 
     // MARK: - Status Color Logic
@@ -72,50 +72,6 @@ final class StatusIndicatorTests: XCTestCase {
         // Terminal says actionRequired, but Claude says waitingForUser → green (ready)
         let c3 = dotColor(status: .actionRequired, claudeState: .waitingForUser)
         XCTAssertEqual(c3, "green")
-    }
-
-    // MARK: - Autopilot State Embellishments
-
-    func testAutopilotIdleShowsPlane() {
-        let state = AutopilotManager.SessionState.idle
-        let icon = planeIcon(for: state)
-        XCTAssertEqual(icon, "paperplane.fill")
-    }
-
-    func testAutopilotThinkingShowsPlane() {
-        let state = AutopilotManager.SessionState.thinking
-        let icon = planeIcon(for: state)
-        XCTAssertEqual(icon, "paperplane.fill")
-    }
-
-    func testAutopilotInjectingShowsPlane() {
-        let state = AutopilotManager.SessionState.injecting
-        let icon = planeIcon(for: state)
-        XCTAssertEqual(icon, "paperplane.fill")
-    }
-
-    func testAutopilotEscalatedShowsWarning() {
-        let state = AutopilotManager.SessionState.escalated("stuck")
-        let icon = planeIcon(for: state)
-        XCTAssertEqual(icon, "exclamationmark.triangle.fill")
-    }
-
-    func testAutopilotThinkingColorIsBrighter() {
-        // Thinking should use activeColor (brighter) to indicate processing
-        let idleColor = planeColorName(for: .idle)
-        let thinkingColor = planeColorName(for: .thinking)
-        XCTAssertEqual(idleColor, "violet")
-        XCTAssertEqual(thinkingColor, "activeViolet")
-    }
-
-    func testAutopilotInjectingColorIsGreen() {
-        let color = planeColorName(for: .injecting)
-        XCTAssertEqual(color, "green")
-    }
-
-    func testAutopilotEscalatedColorIsOrange() {
-        let color = planeColorName(for: .escalated("reason"))
-        XCTAssertEqual(color, "orange")
     }
 
     // MARK: - Hook → State → UI Integration
@@ -358,23 +314,4 @@ final class StatusIndicatorTests: XCTestCase {
         status == .actionRequired || claudeState == .needsPermission
     }
 
-    /// Get the SF Symbol icon name for an autopilot state
-    private func planeIcon(for state: AutopilotManager.SessionState) -> String {
-        switch state {
-        case .thinking: return "paperplane.fill"
-        case .injecting: return "paperplane.fill"
-        case .escalated: return "exclamationmark.triangle.fill"
-        case .idle: return "paperplane.fill"
-        }
-    }
-
-    /// Get a simplified color name for an autopilot state
-    private func planeColorName(for state: AutopilotManager.SessionState) -> String {
-        switch state {
-        case .thinking: return "activeViolet"
-        case .injecting: return "green"
-        case .escalated: return "orange"
-        case .idle: return "violet"
-        }
-    }
 }

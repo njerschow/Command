@@ -19,7 +19,7 @@ struct SessionTagView: View {
     private var foregroundColor: Color {
         switch tag {
         case "openclaw": return .green.opacity(0.9)
-        case "claude": return .purple.opacity(0.85)
+        case "claude": return .blue.opacity(0.85)
         case "ssh": return .primary.opacity(0.6)
         case "vim", "nvim", "emacs": return .green.opacity(0.85)
         case "node", "npm": return .green.opacity(0.8)
@@ -28,7 +28,6 @@ struct SessionTagView: View {
         case "docker": return .cyan.opacity(0.85)
         case "git": return .red.opacity(0.8)
         case "make": return .yellow.opacity(0.85)
-        case "autopilot": return AutopilotStyle.activeColor
         default: return .primary.opacity(0.5)
         }
     }

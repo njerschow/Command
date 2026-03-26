@@ -6,7 +6,7 @@ struct TerminalListView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var hookServer: ClaudeHookServer
     @EnvironmentObject var updateChecker: UpdateChecker
-    @EnvironmentObject var autopilotManager: AutopilotManager
+    @EnvironmentObject var usageReader: ClaudeUsageReader
     @State private var selectedIndex: Int? = nil
     @State private var savedExpanded = true
     @State private var showHistory = false
@@ -15,6 +15,12 @@ struct TerminalListView: View {
     var body: some View {
         VStack(spacing: 0) {
             terminalList
+
+            Divider()
+                .padding(.horizontal, 8)
+
+            RateLimitBar()
+                .environmentObject(usageReader)
 
             Divider()
                 .padding(.horizontal, 8)
@@ -163,24 +169,7 @@ struct TerminalListView: View {
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
             },
             onClose: { closeTerminal(group: group, tab: tab) },
-            windowFrame: sessionStore.cachedFrame(for: tab.id),
-            isAutopilotEnabled: autopilotManager.isEnabled(tabID: tab.id),
-            autopilotState: autopilotManager.sessionState(tabID: tab.id),
-            autopilotCycleCount: autopilotManager.sessions[tab.id]?.cycleCount ?? 0,
-            onToggleAutopilot: {
-                guard let sid = effectiveSID else { return }
-                if autopilotManager.isEnabled(tabID: tab.id) {
-                    autopilotManager.disable(tabID: tab.id)
-                } else {
-                    autopilotManager.enable(tabID: tab.id, claudeSessionID: sid, group: group, tab: tab)
-                }
-            },
-            onDismissEscalation: {
-                autopilotManager.dismissEscalation(tabID: tab.id)
-            },
-            onTestInject: {
-                WindowFocuser.shared.injectText("# test_inject_\(Int(Date().timeIntervalSince1970))", group: group, tab: tab)
-            }
+            windowFrame: sessionStore.cachedFrame(for: tab.id)
         )
     }
 
@@ -229,24 +218,7 @@ struct TerminalListView: View {
                                          contentReader: summaryManager.contentReader, hookServer: hookServer)
                     },
                     onClose: { closeTerminal(group: group, tab: tab) },
-                    windowFrame: sessionStore.cachedFrame(for: tab.id),
-                    isAutopilotEnabled: autopilotManager.isEnabled(tabID: tab.id),
-                    autopilotState: autopilotManager.sessionState(tabID: tab.id),
-                    autopilotCycleCount: autopilotManager.sessions[tab.id]?.cycleCount ?? 0,
-                    onToggleAutopilot: {
-                        guard let sid = effectiveSID else { return }
-                        if autopilotManager.isEnabled(tabID: tab.id) {
-                            autopilotManager.disable(tabID: tab.id)
-                        } else {
-                            autopilotManager.enable(tabID: tab.id, claudeSessionID: sid, group: group, tab: tab)
-                        }
-                    },
-                    onDismissEscalation: {
-                        autopilotManager.dismissEscalation(tabID: tab.id)
-                    },
-                    onTestInject: {
-                        WindowFocuser.shared.injectText("# test_inject_\(Int(Date().timeIntervalSince1970))", group: group, tab: tab)
-                    }
+                    windowFrame: sessionStore.cachedFrame(for: tab.id)
                 )
             }
         }
@@ -481,6 +453,16 @@ struct TerminalListView: View {
     }
 
     private func closeTerminal(group: TerminalGroup, tab: TerminalTab) {
+        // Remove from UI immediately
+        withAnimation(.easeOut(duration: 0.15)) {
+            appState.terminalGroups = appState.terminalGroups.compactMap { g in
+                guard g.id == group.id else { return g }
+                let remaining = g.tabs.filter { $0.id != tab.id }
+                if remaining.isEmpty { return nil }
+                return TerminalGroup(id: g.id, app: g.app, windowTitle: g.windowTitle, windowID: g.windowID, tabs: remaining)
+            }
+        }
+        // Then actually close in background
         WindowFocuser.shared.close(group: group, tab: tab)
     }
 }

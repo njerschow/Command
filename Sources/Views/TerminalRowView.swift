@@ -15,17 +15,10 @@ struct TerminalRowView: View {
     var onSave: (() -> Void)? = nil
     var onClose: (() -> Void)? = nil
     var windowFrame: WindowFrame? = nil
-    var isAutopilotEnabled: Bool = false
-    var autopilotState: AutopilotManager.SessionState? = nil
-    var autopilotCycleCount: Int = 0
-    var onToggleAutopilot: (() -> Void)? = nil
-    var onDismissEscalation: (() -> Void)? = nil
-    var onTestInject: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var isPressed = false
     @State private var showInfo = false
-    @State private var isDotHovered = false
 
     private var isHighlighted: Bool { isHovered || isSelected }
 
@@ -56,28 +49,7 @@ struct TerminalRowView: View {
                 onSelect()
             }) {
                 HStack(spacing: 8) {
-                    ZStack {
-                        if isDotHovered && (tab.isClaudeSession || claudeState != nil || isAutopilotEnabled) {
-                            Color.clear.frame(width: 14, height: 14)
-                        } else {
-                            StatusDotView(status: tab.status, claudeState: claudeState, sessionTag: tab.sessionTag, isAutopilot: isAutopilotEnabled, autopilotState: autopilotState)
-                        }
-                    }
-                    .onHover { inside in
-                        withAnimation(.easeOut(duration: 0.1)) { isDotHovered = inside }
-                    }
-                    .overlay {
-                        if isDotHovered && (tab.isClaudeSession || claudeState != nil || isAutopilotEnabled) {
-                            Button(action: { onToggleAutopilot?() }) {
-                                Image(systemName: isAutopilotEnabled ? "pause.fill" : "play.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(isAutopilotEnabled ? AutopilotStyle.activeColor : Color.primary.opacity(0.5))
-                                    .frame(width: 14, height: 14)
-                            }
-                            .buttonStyle(.plain)
-                            .transition(.opacity)
-                        }
-                    }
+                    StatusDotView(status: tab.status, claudeState: claudeState, sessionTag: tab.sessionTag)
 
                     if let windowFrame {
                         WindowPositionView(frame: windowFrame)
@@ -96,13 +68,6 @@ struct TerminalRowView: View {
                             } else if tab.sessionTag != "term" {
                                 SessionTagView(tag: tab.sessionTag)
                             }
-                        }
-
-                        if case .escalated(let reason) = autopilotState {
-                            Text(reason)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
                         }
                     }
 
@@ -138,12 +103,7 @@ struct TerminalRowView: View {
         .popover(isPresented: $showInfo, arrowEdge: .trailing) {
             InfoPopoverView(tab: tab, context: context, lastActive: lastActive,
                             workingDirectory: workingDirectory, claudeSessionID: claudeSessionID,
-                            claudeState: claudeState, onSave: onSave,
-                            isAutopilotEnabled: isAutopilotEnabled,
-                            autopilotState: autopilotState,
-                            autopilotCycleCount: autopilotCycleCount,
-                            onToggleAutopilot: onToggleAutopilot,
-                            onTestInject: onTestInject)
+                            claudeState: claudeState, onSave: onSave)
         }
     }
 
@@ -156,7 +116,9 @@ struct TerminalRowView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay { PointingHandCursor() }
+        .onHover { inside in
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 
     private var closeButton: some View {
@@ -168,7 +130,9 @@ struct TerminalRowView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .overlay { PointingHandCursor() }
+        .onHover { inside in
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 
     // Hover: show shortcut. Not hovering: show relative time.
@@ -226,11 +190,6 @@ struct InfoPopoverView: View {
     var claudeSessionID: String? = nil
     var claudeState: ClaudeState? = nil
     var onSave: (() -> Void)? = nil
-    var isAutopilotEnabled: Bool = false
-    var autopilotState: AutopilotManager.SessionState? = nil
-    var autopilotCycleCount: Int = 0
-    var onToggleAutopilot: (() -> Void)? = nil
-    var onTestInject: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -270,68 +229,6 @@ struct InfoPopoverView: View {
                     infoRow("Session", String(sid.prefix(12)) + "…")
                 }
                 infoRow("Saveable", (workingDirectory != nil && (claudeSessionID != nil || !tab.isClaudeSession)) ? "Yes" : "No — missing data")
-            }
-
-            // Autopilot
-            if tab.isClaudeSession || isAutopilotEnabled {
-                Divider()
-                HStack(spacing: 6) {
-                    Image(systemName: isAutopilotEnabled ? "play.fill" : "play")
-                        .font(.system(size: 10))
-                        .foregroundStyle(isAutopilotEnabled ? AutopilotStyle.activeColor : .primary.opacity(0.5))
-                    Text("Autopilot")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    if isAutopilotEnabled {
-                        Text(autopilotStateLabel)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.primary.opacity(0.6))
-                    }
-                }
-
-                if isAutopilotEnabled {
-                    infoRow("Cycles", "\(autopilotCycleCount)")
-                    if case .escalated(let reason) = autopilotState {
-                        infoRow("Escalation", reason)
-                    }
-                }
-
-                Button(action: { onToggleAutopilot?() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: isAutopilotEnabled ? "pause.fill" : "play.fill")
-                            .font(.system(size: 10))
-                        Text(isAutopilotEnabled ? "Pause Autopilot" : "Start Autopilot")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundStyle(isAutopilotEnabled ? .red.opacity(0.8) : AutopilotStyle.activeColor)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                    )
-                }
-                .buttonStyle(.plain)
-
-                if let onTestInject {
-                    Button(action: onTestInject) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "keyboard")
-                                .font(.system(size: 10))
-                            Text("Test Inject")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color.primary.opacity(0.05))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
             }
 
             // History
@@ -391,16 +288,6 @@ struct InfoPopoverView: View {
         }
     }
 
-    private var autopilotStateLabel: String {
-        switch autopilotState {
-        case .idle: return "Waiting"
-        case .thinking: return "Thinking..."
-        case .injecting: return "Sending"
-        case .escalated: return "Escalated"
-        case nil: return "Off"
-        }
-    }
-
     private func statusLabel(_ status: TerminalStatus) -> String {
         switch status {
         case .idle: return "Idle"
@@ -438,6 +325,7 @@ struct PointingHandCursor: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 
     private class CursorView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .pointingHand)
         }

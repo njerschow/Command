@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hookServer = ClaudeHookServer()
     private let hotkeyManager = HotkeyManager()
     private let updateChecker = UpdateChecker()
-    private let autopilotManager = AutopilotManager()
+    private let usageReader = ClaudeUsageReader()
     private var cancellables = Set<AnyCancellable>()
     private var lastDirCacheTime: Date = .distantPast
     private var lastFrameCacheTime: Date = .distantPast
@@ -43,7 +43,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hookServer.start()
         hookServer.startJSONLPolling()
         hookServer.discoverExistingSessions()
-        autopilotManager.start(hookServer: hookServer, sessionStore: sessionStore)
         updateChecker.checkForUpdates()
 
         // Update badge when terminal state or hook state changes
@@ -57,11 +56,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] hookSessions in
                 guard let self else { return }
                 self.updateBadge()
-                // Bump activity for tabs whose Claude session had a state change
+                // Bump activity for tabs whose Claude session had a real hook event
                 for tab in self.appState.allTabs {
                     if let sid = self.sessionStore.cachedClaudeSessionID(for: tab.id),
-                       let session = hookSessions[sid] {
-                        // Use lastUpdated from hook session as a proxy for recent activity
+                       let session = hookSessions[sid],
+                       !session.isFileDiscovered {
+                        // Only use real hook events, not file-discovered sessions
+                        // (file-discovered sessions have lastUpdated=now which would reset timestamps)
                         let existing = self.appState.lastActivity[tab.id] ?? .distantPast
                         if session.lastUpdated > existing {
                             self.appState.lastActivity[tab.id] = session.lastUpdated
@@ -89,7 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         summaryManager.stop()
         hookServer.stop()
         hookServer.stopJSONLPolling()
-        autopilotManager.stop()
         hotkeyManager.unregister()
     }
 
@@ -290,6 +290,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         // (except for uncached tabs which need initial CWD)
                         if needsFullCache && self.sessionStore.cachedClaudeSessionID(for: tabID) != nil { continue }
                         self.sessionStore.cacheDirectory(dir, for: tabID)
+                        // Restore persisted activity from CWD history & track current
+                        self.appState.restoreActivityFromCwd(dir, for: tabID)
+                        self.appState.trackCwdActivity(dir, for: tabID)
                     }
                     for (tabID, frame) in frameUpdates {
                         self.sessionStore.cacheWindowFrame(frame, for: tabID)
@@ -301,6 +304,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         if self.sessionStore.cachedDirectory(for: tabID) == nil {
                             self.sessionStore.cacheDirectory(cwd, for: tabID)
                         }
+                        self.appState.restoreActivityFromCwd(cwd, for: tabID)
+                        self.appState.trackCwdActivity(cwd, for: tabID)
                     }
                 }
             }
@@ -385,7 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(sessionStore)
             .environmentObject(hookServer)
             .environmentObject(updateChecker)
-            .environmentObject(autopilotManager)
+            .environmentObject(usageReader)
 
         let hosting = NSHostingController(rootView: contentView)
         hosting.sizingOptions = .preferredContentSize
@@ -410,6 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         summaryManager.refreshIfNeeded()
         updateChecker.checkForUpdates()
+        usageReader.refreshRateLimits()
         NSApp.activate(ignoringOtherApps: true)
     }
 
