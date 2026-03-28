@@ -23,26 +23,30 @@ final class TerminalAppAdapter {
         hasLoggedPermissionError = false
 
         // Full scan — uses ||| as delimiter and ASCII char 10 (LF) for line breaks
-        // AppleScript does NOT interpret \t or \n as escape sequences
+        // macOS 15+: window iterators lose properties, so use bulk name fetch + index-based access
         let script = """
         tell application "Terminal"
             set output to ""
             set lf to (ASCII character 10)
-            repeat with w in windows
-                set winID to (id of w as text)
-                set winName to name of w
-                set tabCount to count of tabs of w
-                repeat with i from 1 to tabCount
-                    set t to tab i of w
-                    set tabTTY to tty of t
-                    set tabBusy to (busy of t as text)
-                    set tabProcs to processes of t
-                    set procList to ""
-                    repeat with p in tabProcs
-                        if procList is not "" then set procList to procList & ","
-                        set procList to procList & (p as text)
-                    end repeat
-                    set output to output & winID & "|||" & winName & "|||" & i & "|||" & tabTTY & "|||" & tabBusy & "|||" & procList & lf
+            set wNames to name of every window
+            set wCount to count windows
+            repeat with i from 1 to wCount
+                set winName to item i of wNames
+                repeat with j from 1 to 20
+                    try
+                        set t to tab j of window i
+                        set tabTTY to tty of t
+                        set tabBusy to (busy of t as text)
+                        set tabProcs to processes of t
+                        set procList to ""
+                        repeat with p in tabProcs
+                            if procList is not "" then set procList to procList & ","
+                            set procList to procList & (p as text)
+                        end repeat
+                        set output to output & i & "|||" & winName & "|||" & j & "|||" & tabTTY & "|||" & tabBusy & "|||" & procList & lf
+                    on error
+                        exit repeat
+                    end try
                 end repeat
             end repeat
             return output
